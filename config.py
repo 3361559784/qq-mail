@@ -26,6 +26,7 @@ class Settings:
     imap_fetch_days: int
     processed_state_file: Path
     allow_senders_file: Path
+    deny_senders_file: Path
     frequent_sender_file: Path
     frequent_window_days: int
     frequent_min_count: int
@@ -92,6 +93,7 @@ def load_settings() -> Settings:
         imap_fetch_days=_to_int("IMAP_FETCH_DAYS", "1"),
         processed_state_file=Path(_env("STATE_FILE", "data/processed_messages.json")),
         allow_senders_file=Path(_env("ALLOW_SENDERS_FILE", "data/allow_senders.txt")),
+        deny_senders_file=Path(_env("DENY_SENDERS_FILE", "data/deny_senders.txt")),
         frequent_sender_file=Path(_env("FREQUENT_SENDER_FILE", "data/frequent_senders.json")),
         frequent_window_days=_to_int("FREQUENT_WINDOW_DAYS", "30"),
         frequent_min_count=_to_int("FREQUENT_MIN_COUNT", "3"),

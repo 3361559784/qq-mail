@@ -15,6 +15,7 @@ class TestMailFilter(unittest.TestCase):
             sender="marketing@example.com",
             subject="Weekly newsletter",
             body="Click for deal",
+            denylist_hit=False,
             allowlist_hit=False,
             frequent_hit=False,
         )
@@ -27,6 +28,7 @@ class TestMailFilter(unittest.TestCase):
             sender="system@example.com",
             subject="Account notification",
             body="Your account was updated",
+            denylist_hit=False,
             allowlist_hit=False,
             frequent_hit=False,
         )
@@ -39,6 +41,7 @@ class TestMailFilter(unittest.TestCase):
             sender="friend@example.com",
             subject="你好，想请你帮个忙",
             body="你好，我这边有个需求，方便今天帮我看一下吗？谢谢！",
+            denylist_hit=False,
             allowlist_hit=False,
             frequent_hit=False,
         )
@@ -51,6 +54,7 @@ class TestMailFilter(unittest.TestCase):
             sender="friend@example.com",
             subject="ping",
             body="ok",
+            denylist_hit=False,
             allowlist_hit=True,
             frequent_hit=False,
         )
@@ -63,6 +67,7 @@ class TestMailFilter(unittest.TestCase):
             sender="friend@example.com",
             subject="ping",
             body="ok",
+            denylist_hit=False,
             allowlist_hit=False,
             frequent_hit=True,
         )
@@ -75,11 +80,38 @@ class TestMailFilter(unittest.TestCase):
             sender="friend@example.com",
             subject="Hello",
             body="Can we chat?",
+            denylist_hit=False,
             allowlist_hit=True,
             frequent_hit=True,
         )
         self.assertFalse(decision.should_reply)
         self.assertTrue(decision.reason.startswith("hard:"))
+
+    def test_sender_denylist_blocks(self) -> None:
+        decision = self.filter.evaluate(
+            headers={},
+            sender="notifications@github.com",
+            subject="reply please",
+            body="human-like body",
+            denylist_hit=True,
+            allowlist_hit=True,
+            frequent_hit=True,
+        )
+        self.assertFalse(decision.should_reply)
+        self.assertEqual(decision.reason, "hard:sender-denylist")
+
+    def test_marketing_body_is_hard_filtered(self) -> None:
+        decision = self.filter.evaluate(
+            headers={},
+            sender="promo@example.com",
+            subject="hello",
+            body="Limited time discount! click here https://a.com?utm_source=x and unsubscribe now.",
+            denylist_hit=False,
+            allowlist_hit=False,
+            frequent_hit=False,
+        )
+        self.assertFalse(decision.should_reply)
+        self.assertEqual(decision.reason, "hard:marketing-body")
 
 
 if __name__ == "__main__":

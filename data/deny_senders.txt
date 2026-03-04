@@ -1,0 +1,12 @@
+# User-requested deny senders
+notifications@github.com
+noreply@steampowered.com
+applecard@insideapple.apple.com
+info@artofproblemsolving.com
+
+# Common system/marketing sender patterns by domain
+@mailchimp.com
+@sendgrid.net
+@mailer.shopify.com
+@amazonses.com
+@list-manage.com

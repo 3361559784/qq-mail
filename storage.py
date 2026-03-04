@@ -175,6 +175,38 @@ class AllowlistStore:
         return domain in self._domains
 
 
+class DenylistStore:
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self._exact: set[str] = set()
+        self._domains: set[str] = set()
+        self.reload()
+
+    def reload(self) -> None:
+        self._exact = set()
+        self._domains = set()
+        if not self.path.exists():
+            return
+
+        for raw in self.path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip().lower()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("@"):
+                self._domains.add(line[1:])
+            else:
+                self._exact.add(line)
+
+    def contains(self, sender_email: str) -> bool:
+        sender = sender_email.strip().lower()
+        if not sender:
+            return False
+        if sender in self._exact:
+            return True
+        domain = sender.split("@")[-1] if "@" in sender else ""
+        return domain in self._domains
+
+
 class FrequentSenderStore:
     def __init__(
         self,

@@ -9,6 +9,7 @@
 - 中等强度过滤（系统通知/广告自动跳过）
 - `SINCE + 判重` 拉取策略
 - 状态存储支持 `Azure Table`（默认）与本地文件回退
+- 支持发件人白名单/黑名单（邮箱和域名）
 
 ## 项目结构
 
@@ -53,6 +54,7 @@ UTC 映射示例：
 - `STORAGE_BACKEND=table`：强制 Table
 - `STORAGE_BACKEND=file`：强制本地文件（仅开发调试）
 - `TABLE_CONNECTION_STRING` 为空时会回落使用 `AzureWebJobsStorage`
+- `DENY_SENDERS_FILE`：黑名单文件路径（默认 `data/deny_senders.txt`）
 
 Table 默认表名：
 

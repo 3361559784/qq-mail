@@ -27,17 +27,51 @@ class MailFilter:
         lowered = text.lower()
         return any(keyword in lowered for keyword in keywords)
 
+    @staticmethod
+    def _marketing_body_hit(body: str) -> bool:
+        lowered = body.lower()
+        marketing_markers = [
+            "unsubscribe",
+            "退订",
+            "manage preferences",
+            "view in browser",
+            "click here",
+            "limited time",
+            "coupon",
+            "promo",
+            "discount",
+            "sale",
+            "deal",
+            "优惠",
+            "折扣",
+            "立减",
+            "立即购买",
+            "下单",
+        ]
+        hits = sum(1 for marker in marketing_markers if marker in lowered)
+        link_count = len(re.findall(r"https?://", lowered, re.IGNORECASE))
+        tracking_link_count = len(re.findall(r"https?://[^\\s]+(utm_|ref=|trk=|mc_eid=)", lowered, re.IGNORECASE))
+        if hits >= 2:
+            return True
+        if link_count >= 5:
+            return True
+        if tracking_link_count >= 2:
+            return True
+        return False
+
     def _hard_filter(
         self,
         headers: dict[str, str],
         sender: str,
         subject: str,
+        body: str,
     ) -> FilterDecision | None:
         sender_lower = sender.lower().strip()
         subject_lower = subject.lower().strip()
         auto_submitted = headers.get("auto-submitted", "").strip().lower()
         precedence = headers.get("precedence", "").strip().lower()
         return_path = headers.get("return-path", "").strip().lower().replace(" ", "")
+        to_header = headers.get("to", "").lower()
 
         if auto_submitted and auto_submitted != "no":
             return FilterDecision(False, "hard:auto-submitted", 1.0)
@@ -47,9 +81,16 @@ class MailFilter:
 
         if self._has_header(headers, "List-Unsubscribe"):
             return FilterDecision(False, "hard:list-unsubscribe", 1.0)
+        if self._has_header(headers, "List-Id"):
+            return FilterDecision(False, "hard:list-id", 1.0)
+        if self._has_header(headers, "List-Post"):
+            return FilterDecision(False, "hard:list-post", 1.0)
 
         if return_path == "<>":
             return FilterDecision(False, "hard:return-path-empty", 1.0)
+
+        if "undisclosed-recipients" in to_header:
+            return FilterDecision(False, "hard:undisclosed-recipients", 1.0)
 
         if any(flag in sender_lower for flag in ["no-reply", "noreply", "mailer-daemon", "postmaster"]):
             return FilterDecision(False, "hard:non-human-sender", 1.0)
@@ -68,9 +109,24 @@ class MailFilter:
             "receipt",
             "invoice",
             "system alert",
+            "limited time",
+            "discount",
+            "sale",
+            "coupon",
+            "offer",
+            "deal",
+            "black friday",
+            "cyber monday",
+            "优惠",
+            "折扣",
+            "活动",
+            "福利",
         ]
         if self._contains_keywords(subject_lower, system_subject_keywords):
             return FilterDecision(False, "hard:system-subject", 0.95)
+
+        if self._marketing_body_hit(body):
+            return FilterDecision(False, "hard:marketing-body", 0.95)
 
         return None
 
@@ -110,11 +166,20 @@ class MailFilter:
         sender: str,
         subject: str,
         body: str,
+        denylist_hit: bool,
         allowlist_hit: bool,
         frequent_hit: bool,
     ) -> FilterDecision:
+        if denylist_hit:
+            return FilterDecision(False, "hard:sender-denylist", 1.0)
+
         normalized_headers = {key.lower(): value for key, value in headers.items()}
-        hard = self._hard_filter(headers=normalized_headers, sender=sender, subject=subject)
+        hard = self._hard_filter(
+            headers=normalized_headers,
+            sender=sender,
+            subject=subject,
+            body=body,
+        )
         if hard:
             return hard
 

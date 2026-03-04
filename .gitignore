@@ -6,3 +6,4 @@ __pycache__/
 data/*
 !data/.gitkeep
 !data/allow_senders.example.txt
+!data/deny_senders.txt

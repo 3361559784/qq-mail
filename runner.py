@@ -9,6 +9,7 @@ from mail_client import QQMailClient, compose_reply_body
 from model_chain import ModelChainClient
 from storage import (
     AllowlistStore,
+    DenylistStore,
     FrequentSenderStore,
     ProcessedStore,
     StateStore,
@@ -112,6 +113,7 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
     )
     state_store = _build_processed_store(settings, logger)
     allowlist = AllowlistStore(settings.allow_senders_file)
+    denylist = DenylistStore(settings.deny_senders_file)
     frequent = _build_frequent_store(settings, logger)
     mail_filter = MailFilter(level=settings.filter_level)
 
@@ -146,6 +148,7 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
             continue
 
         allowlist_hit = allowlist.contains(item.sender_email)
+        denylist_hit = denylist.contains(item.sender_email)
         frequent_hit = False
         try:
             frequent_hit = frequent.is_frequent(item.sender_email)
@@ -158,6 +161,7 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
             sender=item.sender_email,
             subject=item.subject,
             body=item.body,
+            denylist_hit=denylist_hit,
             allowlist_hit=allowlist_hit,
             frequent_hit=frequent_hit,
         )
