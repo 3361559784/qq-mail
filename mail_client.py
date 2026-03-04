@@ -42,6 +42,14 @@ def normalize_subject(subject: str) -> str:
     return f"Re: {clean}"
 
 
+def truncate_text(text: str, limit: int) -> str:
+    if limit <= 0:
+        return text
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}..."
+
+
 def html_to_text(raw_html: str) -> str:
     text = re.sub(r"(?is)<(script|style).*?>.*?(</\1>)", "", raw_html)
     text = re.sub(r"(?i)<br\s*/?>", "\n", text)
@@ -295,6 +303,44 @@ class QQMailClient:
             out["References"] = f"{original_refs} {original_msg_id}".strip()
 
         out.set_content(final_body.strip())
+        return out
+
+    def build_delivery_receipt_email(
+        self,
+        notify_to: str,
+        replied_to: str,
+        original_subject: str,
+        final_body: str,
+        used_model: str,
+        dedupe_key: str,
+        body_chars: int = 1200,
+    ) -> EmailMessage:
+        out = EmailMessage()
+        out["From"] = self.qq_email
+        out["To"] = notify_to
+        out["Subject"] = (
+            f"[qq-mail] 已自动回复 -> {replied_to} | "
+            f"{truncate_text((original_subject or '(无主题)').strip(), 60)}"
+        )
+        out["Date"] = formatdate(localtime=True)
+        out["Message-ID"] = make_msgid()
+
+        preview = truncate_text(final_body.strip(), body_chars).strip()
+        out.set_content(
+            "\n".join(
+                [
+                    "自动回复已发送。",
+                    f"收件人: {replied_to}",
+                    f"原主题: {(original_subject or '(无主题)').strip()}",
+                    f"模型: {used_model}",
+                    f"判重键: {dedupe_key}",
+                    "",
+                    "发送正文:",
+                    "-----",
+                    preview,
+                ]
+            ).strip()
+        )
         return out
 
     def send_email(self, mail: EmailMessage) -> None:

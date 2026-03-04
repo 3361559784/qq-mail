@@ -36,6 +36,9 @@ class Settings:
     reply_max_sentences: int
     reply_max_questions: int
     enable_reply_postprocess: bool
+    self_notify_on_reply: bool
+    self_notify_email: str
+    self_notify_body_chars: int
     filter_level: str
     timer_schedule: str
     storage_backend: str
@@ -58,6 +61,11 @@ def _to_int(name: str, default: str) -> int:
         return int(value)
     except ValueError as exc:
         raise ValueError(f"Environment variable {name} must be integer, got: {value}") from exc
+
+
+def _to_bool(name: str, default: str) -> bool:
+    value = _env(name, default).strip().lower()
+    return value in {"1", "true", "yes", "on"}
 
 
 def _parse_fallbacks(value: str) -> list[str]:
@@ -108,6 +116,9 @@ def load_settings() -> Settings:
         reply_max_sentences=4,
         reply_max_questions=1,
         enable_reply_postprocess=True,
+        self_notify_on_reply=_to_bool("SELF_NOTIFY_ON_REPLY", "true"),
+        self_notify_email=_env("SELF_NOTIFY_EMAIL", "").strip(),
+        self_notify_body_chars=_to_int("SELF_NOTIFY_BODY_CHARS", "1200"),
         filter_level=_env("FILTER_LEVEL", "medium").strip().lower() or "medium",
         timer_schedule=_env("TIMER_SCHEDULE", "0 */5 * * * *"),
         storage_backend=storage_backend,

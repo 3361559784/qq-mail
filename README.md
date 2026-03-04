@@ -91,3 +91,29 @@ AppTraces
 | where Message contains "DECISION |"
 | order by TimeGenerated desc
 ```
+
+查看具体“发给谁、发了什么（预览）”：
+
+```kql
+AppTraces
+| where TimeGenerated > ago(24h)
+| where Message contains "REPLY_SENT |"
+| project TimeGenerated, Message
+| order by TimeGenerated desc
+```
+
+启用给自己发回执邮件（默认开启）：
+
+- `SELF_NOTIFY_ON_REPLY=true`
+- `SELF_NOTIFY_EMAIL=`（留空默认发到 `QQ_EMAIL`）
+- `SELF_NOTIFY_BODY_CHARS=1200`
+
+回执日志查询：
+
+```kql
+AppTraces
+| where TimeGenerated > ago(24h)
+| where Message contains "NOTIFY_SENT |"
+| project TimeGenerated, Message
+| order by TimeGenerated desc
+```

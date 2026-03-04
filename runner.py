@@ -102,6 +102,13 @@ def _truncate_subject(subject: str, limit: int = 120) -> str:
     return f"{clean[:limit]}..."
 
 
+def _truncate_preview(text: str, limit: int = 280) -> str:
+    one_line = " ".join(text.strip().split())
+    if len(one_line) <= limit:
+        return one_line
+    return f"{one_line[:limit]}..."
+
+
 def _log_decision(
     logger: logging.Logger,
     action: str,
@@ -289,6 +296,42 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
                 final_body=body,
             )
             mail_client.send_email(mail)
+            logger.info(
+                "REPLY_SENT | to=%s | model=%s | dedupe=%s | body_preview=%s",
+                item.sender_email,
+                model_reply.used_model,
+                item.dedupe_key,
+                _truncate_preview(body),
+            )
+
+            if settings.self_notify_on_reply:
+                notify_to = (settings.self_notify_email or settings.qq_email).strip()
+                if notify_to:
+                    try:
+                        notify_mail = mail_client.build_delivery_receipt_email(
+                            notify_to=notify_to,
+                            replied_to=item.sender_email,
+                            original_subject=item.subject,
+                            final_body=body,
+                            used_model=model_reply.used_model,
+                            dedupe_key=item.dedupe_key,
+                            body_chars=settings.self_notify_body_chars,
+                        )
+                        mail_client.send_email(notify_mail)
+                        logger.info(
+                            "NOTIFY_SENT | notify_to=%s | replied_to=%s | dedupe=%s",
+                            notify_to,
+                            item.sender_email,
+                            item.dedupe_key,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Failed to send self notify mail replied_to=%s dedupe=%s",
+                            item.sender_email,
+                            item.dedupe_key,
+                            exc_info=True,
+                        )
+
             try:
                 mail_client.mark_answered(item.uid)
             except Exception:
