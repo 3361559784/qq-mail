@@ -1,98 +1,74 @@
-# QQ 邮箱自动回复（模块化二期）
+# QQ 邮箱自动回复（Azure Functions 版）
 
-使用 QQ 邮箱 IMAP/SMTP + GitHub Models 实现自动回复服务，具备：
+基于 QQ 邮箱 IMAP/SMTP + GitHub Models 的自动回复服务，运行于 Azure Functions Timer Trigger。
+
+## 主要能力
 
 - 主模型 + 多层备选模型降级调用
-- 邮件末尾自动标注实际使用模型
-- 中等强度过滤（广告/通知/系统邮件不回复）
-- `SINCE + 本地判重` 拉取策略，避免仅依赖未读状态
-- 常用邮箱自动学习（窗口化 + 最大事件数限制）
+- 回复尾部标注实际使用模型
+- 中等强度过滤（系统通知/广告自动跳过）
+- `SINCE + 判重` 拉取策略
+- 状态存储支持 `Azure Table`（默认）与本地文件回退
 
 ## 项目结构
 
 ```text
 .
-├── main.py                # CLI 入口
-├── config.py              # 配置加载
-├── model_chain.py         # 模型链调用
-├── mail_client.py         # IMAP/SMTP + 邮件解析
-├── filter_rules.py        # 过滤规则
-├── storage.py             # 状态存储（判重/常用邮箱）
-├── data/
-│   └── allow_senders.example.txt
+├── function_app.py        # Azure Functions Timer 入口
+├── host.json              # Functions 主配置
+├── runner.py              # run_once 核心执行逻辑
+├── main.py                # 本地 CLI 调试入口
+├── config.py
+├── model_chain.py
+├── mail_client.py
+├── filter_rules.py
+├── storage.py
 └── tests/
 ```
 
-## 前置准备
-
-1. 在 QQ 邮箱开启 IMAP/SMTP，获取授权码（不是 QQ 密码）。
-2. 准备 GitHub Token，包含 `models:read` 权限。
-3. Python 3.10+。
-
-## 配置
+## 本地运行
 
 ```bash
 cp .env.example .env
 cp data/allow_senders.example.txt data/allow_senders.txt
-```
-
-至少配置：
-
-- `QQ_EMAIL`
-- `QQ_AUTH_CODE`
-- `GITHUB_TOKEN`
-
-关键配置：
-
-- `GITHUB_MODEL_PRIMARY`：主模型
-- `GITHUB_MODEL_FALLBACKS`：逗号分隔备选模型
-- `MODEL_SIGNATURE_TEMPLATE`：默认 `--\n使用 {model} 模型自动生成回复`
-- `IMAP_FETCH_DAYS`：按天窗口拉取邮件
-- `ALLOW_SENDERS_FILE`：手动白名单文件
-- `FREQUENT_*`：常用邮箱自动学习参数
-
-兼容项：
-
-- 若只设置 `GITHUB_MODEL`，将自动作为主模型使用。
-
-## 安装与运行
-
-```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 python3 main.py --once --verbose
 ```
 
-常驻：
+## Azure Functions 调度
 
-```bash
-python3 main.py
-```
+- `TIMER_SCHEDULE` 使用 UTC cron。
+- 默认值：`0 */5 * * * *`（每 5 分钟）。
 
-## 过滤规则（FILTER_LEVEL=medium）
+UTC 映射示例：
 
-硬过滤（命中即不回复）：
+- KST `09:00` = UTC `00:00`
+- 中国时区 `09:00` = UTC `01:00`
 
-- `Auto-Submitted != no`
-- `Precedence` 属于 `bulk/list/junk/auto_reply`
-- 存在 `List-Unsubscribe`
-- `Return-Path: <>`
-- 发件人包含 `no-reply/noreply/mailer-daemon/postmaster`
-- 主题命中系统/通知关键词
+## 状态存储后端
 
-软判定：
+- `STORAGE_BACKEND=auto`：优先 Table；无连接串回退本地 JSON
+- `STORAGE_BACKEND=table`：强制 Table
+- `STORAGE_BACKEND=file`：强制本地文件（仅开发调试）
+- `TABLE_CONNECTION_STRING` 为空时会回落使用 `AzureWebJobsStorage`
 
-- 根据问句、请求语气、自然语言长度等计算人类信号分
-- 低分邮件仅在命中手动白名单或常用邮箱时放行
+Table 默认表名：
+
+- `processedstate`
+- `frequentsenderstate`
+
+## CI/CD
+
+GitHub Actions：
+
+- push 到 `main` 自动触发
+- Python `3.11`
+- 先执行单测，再通过 `Azure/functions-action@v1` 部署到 Flex Consumption
 
 ## 测试
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
-
-## GitHub Models 参考
-
-- Chat Completions API: <https://docs.github.com/en/rest/models/inference>
-- Model Catalog API: <https://docs.github.com/en/rest/models/catalog>

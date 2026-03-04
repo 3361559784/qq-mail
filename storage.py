@@ -1,8 +1,61 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Protocol
+
+try:
+    from azure.core.exceptions import ResourceExistsError, ResourceNotFoundError
+    from azure.data.tables import TableServiceClient, UpdateMode
+except Exception:  # pragma: no cover - optional dependency for local file mode
+    ResourceExistsError = None  # type: ignore[assignment]
+    ResourceNotFoundError = None  # type: ignore[assignment]
+    TableServiceClient = None  # type: ignore[assignment]
+    UpdateMode = None  # type: ignore[assignment]
+
+
+def build_row_key(value: str) -> str:
+    # Keep RowKey compact for better table index performance.
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:32]
+
+
+def _utc_iso(ts: int | None = None) -> str:
+    t = datetime.fromtimestamp(ts if ts is not None else time.time(), tz=timezone.utc)
+    return t.isoformat()
+
+
+def _is_exists_error(exc: Exception) -> bool:
+    if ResourceExistsError is not None and isinstance(exc, ResourceExistsError):
+        return True
+    return exc.__class__.__name__ == "ResourceExistsError"
+
+
+def _is_not_found_error(exc: Exception) -> bool:
+    if ResourceNotFoundError is not None and isinstance(exc, ResourceNotFoundError):
+        return True
+    return exc.__class__.__name__ == "ResourceNotFoundError"
+
+
+def resolve_table_connection_string(explicit: str) -> str:
+    if explicit.strip():
+        return explicit.strip()
+    return os.getenv("AzureWebJobsStorage", "").strip()
+
+
+class ProcessedStore(Protocol):
+    def is_processed(self, dedupe_key: str) -> bool: ...
+
+    def mark_processed(self, dedupe_key: str, sender_email: str) -> bool: ...
+
+
+class FrequentStore(Protocol):
+    def record(self, sender_email: str, ts: int | None = None) -> None: ...
+
+    def is_frequent(self, sender_email: str, now_ts: int | None = None) -> bool: ...
 
 
 class StateStore:
@@ -31,9 +84,63 @@ class StateStore:
     def is_processed(self, dedupe_key: str) -> bool:
         return dedupe_key in self._processed
 
-    def mark_processed(self, dedupe_key: str) -> None:
+    def mark_processed(self, dedupe_key: str, sender_email: str) -> bool:
+        del sender_email
+        if dedupe_key in self._processed:
+            return False
         self._processed.add(dedupe_key)
         self._save()
+        return True
+
+
+class TableProcessedStore:
+    PARTITION_KEY = "processed"
+
+    def __init__(
+        self,
+        table_name: str,
+        connection_string: str = "",
+        table_client: Any | None = None,
+    ) -> None:
+        if table_client is not None:
+            self._table = table_client
+            return
+
+        if TableServiceClient is None:
+            raise RuntimeError("azure-data-tables is not installed")
+        if not connection_string.strip():
+            raise ValueError("Table connection string is required for table backend")
+
+        service = TableServiceClient.from_connection_string(connection_string)
+        service.create_table_if_not_exists(table_name=table_name)
+        self._table = service.get_table_client(table_name=table_name)
+
+    def is_processed(self, dedupe_key: str) -> bool:
+        row_key = build_row_key(dedupe_key)
+        try:
+            self._table.get_entity(partition_key=self.PARTITION_KEY, row_key=row_key)
+            return True
+        except Exception as exc:
+            if _is_not_found_error(exc):
+                return False
+            raise
+
+    def mark_processed(self, dedupe_key: str, sender_email: str) -> bool:
+        row_key = build_row_key(dedupe_key)
+        entity = {
+            "PartitionKey": self.PARTITION_KEY,
+            "RowKey": row_key,
+            "dedupe_key": dedupe_key,
+            "sender_email": sender_email.lower().strip(),
+            "processed_at_utc": _utc_iso(),
+        }
+        try:
+            self._table.create_entity(entity=entity)
+            return True
+        except Exception as exc:
+            if _is_exists_error(exc):
+                return False
+            raise
 
 
 class AllowlistStore:
@@ -141,3 +248,114 @@ class FrequentSenderStore:
         ts = now_ts if now_ts is not None else int(time.time())
         history = self._prune(sender, ts)
         return len(history) >= self.min_count
+
+
+class TableFrequentSenderStore:
+    PARTITION_KEY = "sender"
+
+    def __init__(
+        self,
+        table_name: str,
+        window_days: int = 30,
+        min_count: int = 3,
+        max_events: int = 20,
+        connection_string: str = "",
+        table_client: Any | None = None,
+    ) -> None:
+        self.window_days = window_days
+        self.min_count = min_count
+        self.max_events = max_events
+
+        if table_client is not None:
+            self._table = table_client
+            return
+
+        if TableServiceClient is None:
+            raise RuntimeError("azure-data-tables is not installed")
+        if not connection_string.strip():
+            raise ValueError("Table connection string is required for table backend")
+
+        service = TableServiceClient.from_connection_string(connection_string)
+        service.create_table_if_not_exists(table_name=table_name)
+        self._table = service.get_table_client(table_name=table_name)
+
+    @staticmethod
+    def _normalize(sender_email: str) -> str:
+        return sender_email.strip().lower()
+
+    def _row_key(self, sender_email: str) -> str:
+        return build_row_key(self._normalize(sender_email))
+
+    def _get_entity(self, sender_email: str) -> dict[str, Any] | None:
+        try:
+            return self._table.get_entity(
+                partition_key=self.PARTITION_KEY,
+                row_key=self._row_key(sender_email),
+            )
+        except Exception as exc:
+            if _is_not_found_error(exc):
+                return None
+            raise
+
+    @staticmethod
+    def _parse_events(raw: Any) -> list[int]:
+        if not raw:
+            return []
+        if isinstance(raw, list):
+            return [int(item) for item in raw if isinstance(item, int)]
+        if isinstance(raw, str):
+            try:
+                data = json.loads(raw)
+            except Exception:
+                return []
+            if not isinstance(data, list):
+                return []
+            return [int(item) for item in data if isinstance(item, int)]
+        return []
+
+    def _prune(self, events: list[int], now_ts: int) -> list[int]:
+        cutoff = now_ts - self.window_days * 24 * 3600
+        kept = [ts for ts in events if ts >= cutoff]
+        if len(kept) > self.max_events:
+            kept = kept[-self.max_events :]
+        return kept
+
+    def _write_events(self, sender_email: str, events: list[int], now_ts: int) -> None:
+        entity = {
+            "PartitionKey": self.PARTITION_KEY,
+            "RowKey": self._row_key(sender_email),
+            "sender_email": self._normalize(sender_email),
+            "events_json": json.dumps(events, ensure_ascii=False),
+            "updated_at_utc": _utc_iso(now_ts),
+        }
+        if UpdateMode is None:
+            self._table.upsert_entity(entity=entity)
+            return
+        self._table.upsert_entity(entity=entity, mode=UpdateMode.REPLACE)
+
+    def record(self, sender_email: str, ts: int | None = None) -> None:
+        sender = self._normalize(sender_email)
+        if not sender:
+            return
+        now_ts = ts if ts is not None else int(time.time())
+        entity = self._get_entity(sender)
+        events = self._parse_events(entity.get("events_json") if entity else [])
+        events = self._prune(events, now_ts)
+        events.append(now_ts)
+        if len(events) > self.max_events:
+            events = events[-self.max_events :]
+        self._write_events(sender, events, now_ts)
+
+    def is_frequent(self, sender_email: str, now_ts: int | None = None) -> bool:
+        sender = self._normalize(sender_email)
+        if not sender:
+            return False
+        ts = now_ts if now_ts is not None else int(time.time())
+        entity = self._get_entity(sender)
+        if not entity:
+            return False
+        events = self._parse_events(entity.get("events_json"))
+        pruned = self._prune(events, ts)
+        if pruned != events:
+            self._write_events(sender, pruned, ts)
+        return len(pruned) >= self.min_count
