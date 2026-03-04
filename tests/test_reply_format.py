@@ -38,6 +38,16 @@ class TestReplyFormat(unittest.TestCase):
         expected = "第一段正文\n\n第二段签名\n\n--\n使用 openai/gpt-4.1 模型自动生成回复"
         self.assertEqual(body, expected)
 
+    def test_compose_order_still_valid_after_postprocess(self) -> None:
+        body = compose_reply_body(
+            ai_text="这是正文\n\n祝好，\n[您的姓名]",
+            reply_signature="固定签名",
+            model_signature_template="--\n使用 {model} 模型自动生成回复",
+            used_model="openai/gpt-4o",
+        )
+        expected = "这是正文\n\n固定签名\n\n--\n使用 openai/gpt-4o 模型自动生成回复"
+        self.assertEqual(body, expected)
+
 
 if __name__ == "__main__":
     unittest.main()

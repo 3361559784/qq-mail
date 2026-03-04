@@ -32,6 +32,10 @@ class Settings:
     frequent_min_count: int
     frequent_max_events: int
     reply_signature: str
+    reply_style_profile: str
+    reply_max_sentences: int
+    reply_max_questions: int
+    enable_reply_postprocess: bool
     filter_level: str
     timer_schedule: str
     storage_backend: str
@@ -99,6 +103,10 @@ def load_settings() -> Settings:
         frequent_min_count=_to_int("FREQUENT_MIN_COUNT", "3"),
         frequent_max_events=_to_int("FREQUENT_MAX_EVENTS", "20"),
         reply_signature=_env("REPLY_SIGNATURE", "--\n这是一封自动回复邮件。").replace("\\n", "\n"),
+        reply_style_profile="professional_polite",
+        reply_max_sentences=4,
+        reply_max_questions=1,
+        enable_reply_postprocess=True,
         filter_level=_env("FILTER_LEVEL", "medium").strip().lower() or "medium",
         timer_schedule=_env("TIMER_SCHEDULE", "0 */5 * * * *"),
         storage_backend=storage_backend,

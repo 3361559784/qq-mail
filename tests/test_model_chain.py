@@ -90,6 +90,70 @@ class TestModelChain(unittest.TestCase):
         self.assertIn("All models failed", str(ctx.exception))
         self.assertEqual(calls, ["model-primary", "model-f1", "model-f2", "model-f3"])
 
+    def test_budget_fallback_on_limit_error(self) -> None:
+        token_calls: list[int] = []
+
+        def fake_request(url, headers, json, timeout):  # type: ignore[no-untyped-def]
+            del url, headers, timeout
+            token_calls.append(json["max_tokens"])
+            if json["max_tokens"] == 8000:
+                return FakeResponse(422, text="context length exceeded token limit")
+            return FakeResponse(200, payload={"choices": [{"message": {"content": "fallback ok"}}]})
+
+        client = ModelChainClient(
+            token="t",
+            api_url="https://models.github.ai/inference/chat/completions",
+            primary="model-primary",
+            fallbacks=[],
+            request_fn=fake_request,
+        )
+        result = client.generate_reply("Alice", "Hello", "Need your help")
+        self.assertEqual(result.text, "fallback ok")
+        self.assertEqual(result.used_model, "model-primary")
+        self.assertEqual(token_calls, [8000, 4000])
+
+    def test_all_budget_profiles_fail_then_raise(self) -> None:
+        token_calls: list[int] = []
+
+        def fake_request(url, headers, json, timeout):  # type: ignore[no-untyped-def]
+            del url, headers, timeout
+            token_calls.append(json["max_tokens"])
+            return FakeResponse(422, text="too many tokens for this model")
+
+        client = ModelChainClient(
+            token="t",
+            api_url="https://models.github.ai/inference/chat/completions",
+            primary="model-primary",
+            fallbacks=[],
+            request_fn=fake_request,
+        )
+
+        with self.assertRaises(RuntimeError) as ctx:
+            client.generate_reply("Alice", "Hello", "Need your help")
+        self.assertIn("All token profiles exceeded", str(ctx.exception))
+        self.assertEqual(token_calls, [8000, 4000, 2000])
+
+    def test_no_local_rate_limit_sleep(self) -> None:
+        calls: list[str] = []
+
+        def fake_request(url, headers, json, timeout):  # type: ignore[no-untyped-def]
+            del url, headers, timeout
+            calls.append(json["model"])
+            if json["model"] == "model-primary":
+                return FakeResponse(429, text="rate limited")
+            return FakeResponse(200, payload={"choices": [{"message": {"content": "ok"}}]})
+
+        client = ModelChainClient(
+            token="t",
+            api_url="https://models.github.ai/inference/chat/completions",
+            primary="model-primary",
+            fallbacks=["model-f1"],
+            request_fn=fake_request,
+        )
+        result = client.generate_reply("Alice", "Hello", "Need your help")
+        self.assertEqual(result.used_model, "model-f1")
+        self.assertEqual(calls, ["model-primary", "model-f1"])
+
 
 if __name__ == "__main__":
     unittest.main()

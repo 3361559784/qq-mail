@@ -13,7 +13,13 @@ class ModelReply:
     attempted_models: list[str]
 
 
+class LimitExceededError(RuntimeError):
+    pass
+
+
 class ModelChainClient:
+    TOKEN_PROFILES = [(16000, 8000), (8000, 4000), (4000, 2000)]
+
     def __init__(
         self,
         token: str,
@@ -33,22 +39,58 @@ class ModelChainClient:
     def _build_prompt(self, sender: str, subject: str, body: str) -> str:
         return (
             "你是中文邮件自动回复助手。\n"
-            "目标：给来信生成一封简洁、礼貌、可直接发送的邮件回复。\n"
+            "目标：给来信生成专业礼貌、简洁直答、可直接发送的邮件回复。\n"
             "要求：\n"
-            "1) 语气专业友好。\n"
-            "2) 如对方提出明确问题，先给直接回答，再补充下一步。\n"
-            "3) 如果信息不足，礼貌地提出 1-2 个澄清问题。\n"
+            "1) 默认输出 2-4 句，先回应结论，再补充下一步。\n"
+            "2) 若对方问题明确，不要反问。\n"
+            "3) 若信息不足，最多追问 1 个关键问题。\n"
             "4) 不要编造事实，不要输出解释过程。\n"
             "5) 仅输出邮件正文，不要输出 JSON 或 Markdown。\n"
             "6) 不要输出任何占位符（如 [您的姓名]、[您的职位]、[您的公司]）。\n"
-            "7) 不要输出落款签名（系统会自动追加签名）。\n\n"
+            "7) 不要输出任何落款签名或结尾客套（如 祝好、此致敬礼、Best regards），系统会自动追加签名。\n\n"
             f"发件人: {sender}\n"
             f"邮件主题: {subject}\n"
             "邮件内容:\n"
             f"{body}\n"
         )
 
-    def _call_model(self, model: str, sender: str, subject: str, body: str) -> str:
+    @staticmethod
+    def _likely_limit_error(status_code: int, body_text: str) -> bool:
+        if status_code not in {400, 422}:
+            return False
+        lowered = body_text.lower()
+        keywords = (
+            "token",
+            "max_tokens",
+            "too many tokens",
+            "context length",
+            "context_length_exceeded",
+            "maximum context",
+            "input too long",
+            "request too large",
+            "exceeds",
+        )
+        return any(keyword in lowered for keyword in keywords)
+
+    @staticmethod
+    def _truncate_body_by_input_cap(body: str, input_cap: int) -> str:
+        # Rough guardrail: keep payload within a practical char budget derived from input tokens.
+        # We intentionally keep a safety margin for prompt prefix and headers.
+        max_body_chars = max(800, int(input_cap * 1.5))
+        if len(body) <= max_body_chars:
+            return body
+        return body[:max_body_chars]
+
+    def _call_model(
+        self,
+        model: str,
+        sender: str,
+        subject: str,
+        body: str,
+        input_cap: int,
+        output_cap: int,
+    ) -> str:
+        bounded_body = self._truncate_body_by_input_cap(body=body, input_cap=input_cap)
         payload = {
             "model": model,
             "messages": [
@@ -56,10 +98,10 @@ class ModelChainClient:
                     "role": "system",
                     "content": "你是资深中文商务邮件助手，输出要简洁并可直接发送。",
                 },
-                {"role": "user", "content": self._build_prompt(sender, subject, body)},
+                {"role": "user", "content": self._build_prompt(sender, subject, bounded_body)},
             ],
             "temperature": 0.3,
-            "max_tokens": 500,
+            "max_tokens": output_cap,
             "stream": False,
         }
 
@@ -79,6 +121,10 @@ class ModelChainClient:
         status_code = getattr(response, "status_code", None)
         if status_code is None or status_code >= 400:
             body_text = getattr(response, "text", "")
+            if status_code is not None and self._likely_limit_error(status_code=status_code, body_text=body_text):
+                raise LimitExceededError(
+                    f"GitHub Models token limit exceeded model={model} status={status_code} body={body_text[:400]}"
+                )
             raise RuntimeError(
                 f"GitHub Models request failed model={model} status={status_code} body={body_text[:400]}"
             )
@@ -102,6 +148,24 @@ class ModelChainClient:
             raise RuntimeError(f"Model returned empty content for model={model}")
         return cleaned
 
+    def _generate_with_budget_fallback(self, model: str, sender: str, subject: str, body: str) -> str:
+        limit_errors: list[str] = []
+        for input_cap, output_cap in self.TOKEN_PROFILES:
+            try:
+                return self._call_model(
+                    model=model,
+                    sender=sender,
+                    subject=subject,
+                    body=body,
+                    input_cap=input_cap,
+                    output_cap=output_cap,
+                )
+            except LimitExceededError as exc:
+                limit_errors.append(str(exc))
+                continue
+        joined = " | ".join(limit_errors[-3:]) if limit_errors else "unknown limit failure"
+        raise RuntimeError(f"All token profiles exceeded for model={model}. errors={joined}")
+
     def generate_reply(self, sender: str, subject: str, body: str) -> ModelReply:
         attempted: list[str] = []
         errors: list[str] = []
@@ -110,7 +174,12 @@ class ModelChainClient:
         for model in chain:
             attempted.append(model)
             try:
-                text = self._call_model(model=model, sender=sender, subject=subject, body=body)
+                text = self._generate_with_budget_fallback(
+                    model=model,
+                    sender=sender,
+                    subject=subject,
+                    body=body,
+                )
                 return ModelReply(text=text, used_model=model, attempted_models=attempted)
             except Exception as exc:
                 errors.append(f"{model}: {exc}")

@@ -104,13 +104,90 @@ def extract_body(msg: EmailMessage) -> str:
     return ""
 
 
+def _normalize_line_for_dedupe(line: str) -> str:
+    lowered = line.strip().lower()
+    return re.sub(r"[，。！？!?,.\s]+", "", lowered)
+
+
+def _is_signature_or_closing_line(line: str) -> bool:
+    stripped = line.strip()
+    lowered = stripped.lower()
+    if not stripped:
+        return True
+    if re.search(r"\[(您的姓名|您的职位|您的公司)\]", stripped):
+        return True
+    closing_patterns = (
+        r"^祝好[！!，,。.]?$",
+        r"^此致[！!，,。.]?$",
+        r"^敬礼[！!，,。.]?$",
+        r"^顺颂商祺[！!，,。.]?$",
+        r"^best regards[!,. ]*$",
+        r"^kind regards[!,. ]*$",
+        r"^regards[!,. ]*$",
+        r"^sincerely[!,. ]*$",
+    )
+    return any(re.match(pattern, lowered, re.IGNORECASE) for pattern in closing_patterns)
+
+
+def _strip_trailing_signature_block(lines: list[str]) -> list[str]:
+    kept = list(lines)
+    while kept and _is_signature_or_closing_line(kept[-1]):
+        kept.pop()
+    while kept and not kept[-1].strip():
+        kept.pop()
+    return kept
+
+
+def _limit_question_marks(text: str, max_questions: int) -> str:
+    if max_questions < 0:
+        max_questions = 0
+    out_chars: list[str] = []
+    questions = 0
+    for ch in text:
+        if ch in {"?", "？"}:
+            questions += 1
+            if questions > max_questions:
+                out_chars.append("。")
+                continue
+        out_chars.append(ch)
+    return "".join(out_chars)
+
+
+def sanitize_reply_text(text: str, max_questions: int = 1) -> str:
+    raw_lines = [line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+
+    # Drop consecutive duplicates such as repeated "祝好" lines.
+    deduped_lines: list[str] = []
+    prev_norm = ""
+    for line in raw_lines:
+        normalized = _normalize_line_for_dedupe(line)
+        if normalized and normalized == prev_norm:
+            continue
+        deduped_lines.append(line)
+        prev_norm = normalized or prev_norm
+
+    cleaned_lines = _strip_trailing_signature_block(deduped_lines)
+    body = "\n".join(cleaned_lines).strip()
+    body = re.sub(r"\n{3,}", "\n\n", body)
+    body = _limit_question_marks(body, max_questions=max_questions)
+    body = re.sub(r"\n{3,}", "\n\n", body).strip()
+    return body
+
+
 def compose_reply_body(
     ai_text: str,
     reply_signature: str,
     model_signature_template: str,
     used_model: str,
+    enable_postprocess: bool = True,
+    max_questions: int = 1,
 ) -> str:
-    chunks = [ai_text.strip()]
+    base_text = ai_text.strip()
+    if enable_postprocess:
+        base_text = sanitize_reply_text(base_text, max_questions=max_questions)
+    if not base_text:
+        base_text = "已收到您的来信，我会尽快处理并回复关键结果。"
+    chunks = [base_text]
     signature = reply_signature.strip()
     if signature:
         chunks.append(signature)

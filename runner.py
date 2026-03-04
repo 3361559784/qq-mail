@@ -213,6 +213,8 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
             reply_signature=settings.reply_signature,
             model_signature_template=settings.model_signature_template,
             used_model=model_reply.used_model,
+            enable_postprocess=settings.enable_reply_postprocess,
+            max_questions=settings.reply_max_questions,
         )
         try:
             mail = mail_client.build_reply_email(
