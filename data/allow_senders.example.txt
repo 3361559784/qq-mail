@@ -1,0 +1,6 @@
+# 精确邮箱匹配
+friend@example.com
+teammate@company.com
+
+# 域名匹配（以 @ 开头）
+@trusted-partner.com

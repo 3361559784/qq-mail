@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.pyc
+.idea/
+data/*
+!data/.gitkeep
+!data/allow_senders.example.txt
