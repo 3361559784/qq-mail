@@ -102,6 +102,7 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
         primary=settings.github_model_primary,
         fallbacks=settings.github_model_fallbacks,
         timeout_seconds=settings.model_request_timeout_seconds,
+        personalization_dir=settings.personalization_dir,
     )
     mail_client = QQMailClient(
         qq_email=settings.qq_email,

@@ -42,6 +42,7 @@ class Settings:
     table_connection_string: str
     processed_table_name: str
     frequent_table_name: str
+    personalization_dir: Path
 
 
 def _env(name: str, default: str | None = None, required: bool = False) -> str:
@@ -113,4 +114,5 @@ def load_settings() -> Settings:
         table_connection_string=_env("TABLE_CONNECTION_STRING", ""),
         processed_table_name=_env("PROCESSED_TABLE_NAME", "processedstate"),
         frequent_table_name=_env("FREQUENT_TABLE_NAME", "frequentsenderstate"),
+        personalization_dir=Path("personalization"),
     )

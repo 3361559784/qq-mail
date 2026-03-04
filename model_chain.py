@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
+from pathlib import Path
 from typing import Any, Callable
 
 import requests
+from personalization import (
+    PersonalizationBundle,
+    PersonalizationLoadError,
+    build_personalized_prompt,
+    load_personalization_bundle,
+)
 
 
 @dataclass(frozen=True)
@@ -28,6 +36,7 @@ class ModelChainClient:
         fallbacks: list[str] | None = None,
         timeout_seconds: int = 45,
         request_fn: Callable[..., Any] = requests.post,
+        personalization_dir: Path | None = None,
     ) -> None:
         self.token = token
         self.api_url = api_url
@@ -35,8 +44,15 @@ class ModelChainClient:
         self.fallbacks = fallbacks or []
         self.timeout_seconds = timeout_seconds
         self.request_fn = request_fn
+        self.logger = logging.getLogger("qq-auto-reply")
+        self.personalization_dir = personalization_dir or Path(__file__).resolve().parent / "personalization"
+        self.personalization_bundle: PersonalizationBundle | None = None
+        try:
+            self.personalization_bundle = load_personalization_bundle(self.personalization_dir)
+        except PersonalizationLoadError as exc:
+            self.logger.warning("Personalization disabled due to load error: %s", exc)
 
-    def _build_prompt(self, sender: str, subject: str, body: str) -> str:
+    def _build_default_prompt(self, sender: str, subject: str, body: str) -> str:
         return (
             "你是中文邮件自动回复助手。\n"
             "目标：给来信生成专业礼貌、简洁直答、可直接发送的邮件回复。\n"
@@ -52,6 +68,19 @@ class ModelChainClient:
             f"邮件主题: {subject}\n"
             "邮件内容:\n"
             f"{body}\n"
+        )
+
+    def _build_prompt(self, sender: str, subject: str, body: str) -> str:
+        if self.personalization_bundle is None:
+            return self._build_default_prompt(sender=sender, subject=subject, body=body)
+
+        return build_personalized_prompt(
+            sender=sender,
+            subject=subject,
+            body=body,
+            bundle=self.personalization_bundle,
+            memory_top_k=3,
+            example_top_k=3,
         )
 
     @staticmethod

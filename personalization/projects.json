@@ -1,0 +1,46 @@
+[
+  {
+    "name": "QQ mail auto reply",
+    "stack": [
+      "Azure Functions",
+      "GitHub Models",
+      "QQ IMAP",
+      "SMTP",
+      "Azure Table Storage",
+      "Python"
+    ],
+    "architecture": [
+      "timer trigger worker",
+      "email filtering",
+      "model chain fallback",
+      "state dedupe store",
+      "auto reply compose"
+    ],
+    "keywords": [
+      "qq mail",
+      "auto reply",
+      "email bot",
+      "serverless"
+    ]
+  },
+  {
+    "name": "Personalized engineering agent (v1)",
+    "stack": [
+      "Prompt engineering",
+      "Memory retrieval",
+      "Few-shot examples"
+    ],
+    "architecture": [
+      "persona",
+      "memory",
+      "style constraints",
+      "deterministic prompt layout"
+    ],
+    "keywords": [
+      "agent",
+      "persona",
+      "memory",
+      "prompt"
+    ]
+  }
+]
