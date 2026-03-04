@@ -126,6 +126,19 @@ class TestMailFilter(unittest.TestCase):
         self.assertTrue(decision.should_reply)
         self.assertEqual(decision.reason, "soft:short-human-signal")
 
+    def test_short_human_message_with_iphone_footer_is_allowed(self) -> None:
+        decision = self.filter.evaluate(
+            headers={},
+            sender="friend@example.com",
+            subject="测试",
+            body="测试azure连通性\n\n发自我的iPhone",
+            denylist_hit=False,
+            allowlist_hit=False,
+            frequent_hit=False,
+        )
+        self.assertTrue(decision.should_reply)
+        self.assertEqual(decision.reason, "soft:short-human-signal")
+
     def test_marketing_question_is_hard_filtered(self) -> None:
         decision = self.filter.evaluate(
             headers={},

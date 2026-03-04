@@ -67,8 +67,6 @@ class MailFilter:
     SHORT_HUMAN_TOKENS = [
         "在吗",
         "在么",
-        "你好",
-        "您好",
         "方便吗",
         "有空吗",
         "收到",
@@ -78,10 +76,6 @@ class MailFilter:
         "请回复",
         "ok",
         "okay",
-        "thanks",
-        "thx",
-        "hello",
-        "hi",
         "ping",
         "test",
         "测试",
@@ -107,6 +101,15 @@ class MailFilter:
         "促销",
     ]
 
+    MOBILE_SIGNATURE_PATTERNS = [
+        r"^\s*发自我的\s*iphone\s*$",
+        r"^\s*发自我的\s*ipad\s*$",
+        r"^\s*sent from my iphone\s*$",
+        r"^\s*sent from my ipad\s*$",
+        r"^\s*sent from outlook for ios\s*$",
+        r"^\s*sent from outlook for android\s*$",
+    ]
+
     def __init__(self, level: str = "medium") -> None:
         if level != "medium":
             raise ValueError("Only FILTER_LEVEL=medium is supported in current version")
@@ -126,6 +129,18 @@ class MailFilter:
     def _count_keyword_hits(text: str, keywords: list[str]) -> int:
         lowered = text.lower()
         return sum(1 for marker in keywords if marker in lowered)
+
+    def _normalize_human_text(self, subject: str, body: str) -> tuple[str, str]:
+        body_lines = body.splitlines()
+        cleaned_lines: list[str] = []
+        for line in body_lines:
+            lowered = line.strip().lower()
+            if any(re.match(pattern, lowered, re.IGNORECASE) for pattern in self.MOBILE_SIGNATURE_PATTERNS):
+                continue
+            cleaned_lines.append(line)
+        cleaned_body = "\n".join(cleaned_lines).strip()
+        cleaned_subject = subject.strip()
+        return cleaned_subject, cleaned_body
 
     def _marketing_content_hit(self, subject: str, body: str) -> bool:
         merged = f"{subject}\n{body}".lower()
@@ -157,12 +172,13 @@ class MailFilter:
         return False
 
     def _is_short_human_message(self, subject: str, body: str) -> bool:
-        body_strip = body.strip()
+        norm_subject, norm_body = self._normalize_human_text(subject, body)
+        body_strip = norm_body.strip()
         if not body_strip:
             return False
-        if len(body_strip) > 18:
+        if len(body_strip) > 40:
             return False
-        merged = f"{subject}\n{body}".lower()
+        merged = f"{norm_subject}\n{norm_body}".lower()
         if re.search(r"https?://|www\.", merged, re.IGNORECASE):
             return False
         if self._contains_keywords(merged, self.SHORT_HUMAN_BLOCK_TOKENS):
@@ -245,12 +261,13 @@ class MailFilter:
         return None
 
     def _human_signal_score(self, subject: str, body: str) -> float:
-        text = f"{subject}\n{body}".strip()
+        norm_subject, norm_body = self._normalize_human_text(subject, body)
+        text = f"{norm_subject}\n{norm_body}".strip()
         if not text:
             return 0.0
 
         score = 0.0
-        body_strip = body.strip()
+        body_strip = norm_body.strip()
 
         if len(body_strip) >= 20:
             score += 0.2
