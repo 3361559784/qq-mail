@@ -3,6 +3,8 @@ notifications@github.com
 noreply@steampowered.com
 applecard@insideapple.apple.com
 info@artofproblemsolving.com
+10000@qq.com
+bingo@patreon.com
 
 # Common system/marketing sender patterns by domain
 @mailchimp.com
@@ -10,3 +12,4 @@ info@artofproblemsolving.com
 @mailer.shopify.com
 @amazonses.com
 @list-manage.com
+@patreon.com

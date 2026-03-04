@@ -95,6 +95,38 @@ def _build_frequent_store(settings: Settings, logger: logging.Logger):
     )
 
 
+def _truncate_subject(subject: str, limit: int = 120) -> str:
+    clean = " ".join(subject.strip().split())
+    if len(clean) <= limit:
+        return clean
+    return f"{clean[:limit]}..."
+
+
+def _log_decision(
+    logger: logging.Logger,
+    action: str,
+    sender: str,
+    subject: str,
+    reason: str,
+    dedupe_key: str,
+    confidence: float | None = None,
+    model: str | None = None,
+) -> None:
+    parts = [
+        "DECISION",
+        f"action={action}",
+        f"sender={sender}",
+        f"subject={_truncate_subject(subject)}",
+        f"reason={reason}",
+        f"dedupe={dedupe_key}",
+    ]
+    if confidence is not None:
+        parts.append(f"confidence={confidence:.2f}")
+    if model:
+        parts.append(f"model={model}")
+    logger.info(" | ".join(parts))
+
+
 def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
     model_client = ModelChainClient(
         token=settings.github_token,
@@ -132,6 +164,14 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
         try:
             if state_store.is_processed(item.dedupe_key):
                 skipped += 1
+                _log_decision(
+                    logger=logger,
+                    action="skip",
+                    sender=item.sender_email,
+                    subject=item.subject,
+                    reason="already-processed",
+                    dedupe_key=item.dedupe_key,
+                )
                 continue
         except Exception:
             logger.exception("Failed to check processed state for %s", item.dedupe_key)
@@ -145,6 +185,14 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
             except Exception:
                 logger.exception("Failed to mark self/invalid sender message processed: %s", item.dedupe_key)
                 errors += 1
+            _log_decision(
+                logger=logger,
+                action="skip",
+                sender=item.sender_email,
+                subject=item.subject,
+                reason="self-or-invalid-sender",
+                dedupe_key=item.dedupe_key,
+            )
             skipped += 1
             continue
 
@@ -173,6 +221,15 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
                 item.subject,
                 decision.reason,
                 decision.confidence,
+            )
+            _log_decision(
+                logger=logger,
+                action="skip",
+                sender=item.sender_email,
+                subject=item.subject,
+                reason=decision.reason,
+                dedupe_key=item.dedupe_key,
+                confidence=decision.confidence,
             )
             try:
                 state_store.mark_processed(item.dedupe_key, item.sender_email)
@@ -207,6 +264,14 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
         if not claimed:
             skipped += 1
             logger.info("Skip dedupe claimed by another worker: %s", item.dedupe_key)
+            _log_decision(
+                logger=logger,
+                action="skip",
+                sender=item.sender_email,
+                subject=item.subject,
+                reason="claimed-by-other-worker",
+                dedupe_key=item.dedupe_key,
+            )
             continue
 
         body = compose_reply_body(
@@ -238,9 +303,26 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
                 model_reply.used_model,
                 ",".join(model_reply.attempted_models),
             )
+            _log_decision(
+                logger=logger,
+                action="reply",
+                sender=item.sender_email,
+                subject=item.subject,
+                reason="sent",
+                dedupe_key=item.dedupe_key,
+                model=model_reply.used_model,
+            )
             replied += 1
         except Exception:
             logger.exception("SMTP send failed dedupe=%s sender=%s", item.dedupe_key, item.sender_email)
+            _log_decision(
+                logger=logger,
+                action="error",
+                sender=item.sender_email,
+                subject=item.subject,
+                reason="smtp-send-failed",
+                dedupe_key=item.dedupe_key,
+            )
             errors += 1
             continue
 

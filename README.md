@@ -74,3 +74,20 @@ GitHub Actions：
 ```bash
 python3 -m unittest discover -s tests -v
 ```
+
+## 排查是否已回复
+
+系统会写统一决策日志，格式以 `DECISION | action=...` 开头。
+
+- `action=reply`：已回复
+- `action=skip`：未回复（会带具体 `reason`）
+- `action=error`：发送或处理失败
+
+在 Azure Log Analytics 可用以下 KQL 快速查询：
+
+```kql
+AppTraces
+| where TimeGenerated > ago(24h)
+| where Message contains "DECISION |"
+| order by TimeGenerated desc
+```
