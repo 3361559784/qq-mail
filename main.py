@@ -11,7 +11,6 @@ from runner import run_once
 
 LOGGER = logging.getLogger("qq-auto-reply")
 
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="QQ Mail auto-reply bot powered by GitHub Models")
     parser.add_argument("--once", action="store_true", help="Run one poll cycle and exit")

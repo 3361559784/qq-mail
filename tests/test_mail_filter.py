@@ -52,8 +52,8 @@ class TestMailFilter(unittest.TestCase):
         decision = self.filter.evaluate(
             headers={},
             sender="friend@example.com",
-            subject="ping",
-            body="ok",
+            subject="status",
+            body="id42",
             denylist_hit=False,
             allowlist_hit=True,
             frequent_hit=False,
@@ -65,8 +65,8 @@ class TestMailFilter(unittest.TestCase):
         decision = self.filter.evaluate(
             headers={},
             sender="friend@example.com",
-            subject="ping",
-            body="ok",
+            subject="status",
+            body="id42",
             denylist_hit=False,
             allowlist_hit=False,
             frequent_hit=True,
@@ -106,6 +106,32 @@ class TestMailFilter(unittest.TestCase):
             sender="promo@example.com",
             subject="hello",
             body="Limited time discount! click here https://a.com?utm_source=x and unsubscribe now.",
+            denylist_hit=False,
+            allowlist_hit=False,
+            frequent_hit=False,
+        )
+        self.assertFalse(decision.should_reply)
+        self.assertEqual(decision.reason, "hard:marketing-body")
+
+    def test_short_human_message_is_allowed(self) -> None:
+        decision = self.filter.evaluate(
+            headers={},
+            sender="friend@example.com",
+            subject="测试",
+            body="在吗？",
+            denylist_hit=False,
+            allowlist_hit=False,
+            frequent_hit=False,
+        )
+        self.assertTrue(decision.should_reply)
+        self.assertEqual(decision.reason, "soft:short-human-signal")
+
+    def test_marketing_question_is_hard_filtered(self) -> None:
+        decision = self.filter.evaluate(
+            headers={},
+            sender="promo@example.com",
+            subject="Can I help you save 50% today?",
+            body="Click here now: https://a.com?utm_source=mail",
             denylist_hit=False,
             allowlist_hit=False,
             frequent_hit=False,

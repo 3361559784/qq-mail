@@ -12,6 +12,101 @@ class FilterDecision:
 
 
 class MailFilter:
+    MARKETING_KEYWORDS = [
+        "limited time",
+        "act now",
+        "last chance",
+        "exclusive offer",
+        "special offer",
+        "promo code",
+        "discount code",
+        "coupon",
+        "save up to",
+        "black friday",
+        "cyber monday",
+        "flash sale",
+        "free shipping",
+        "unsubscribe",
+        "manage preferences",
+        "view in browser",
+        "shop now",
+        "buy now",
+        "order now",
+        "claim now",
+        "click here",
+        "优惠码",
+        "折扣码",
+        "优惠券",
+        "限时",
+        "限时抢购",
+        "抢购",
+        "特惠",
+        "立减",
+        "满减",
+        "包邮",
+        "立即购买",
+        "立即下单",
+        "马上抢",
+        "促销",
+    ]
+
+    CTA_KEYWORDS = [
+        "click here",
+        "learn more",
+        "shop now",
+        "buy now",
+        "order now",
+        "claim now",
+        "立即购买",
+        "立即下单",
+        "点击购买",
+        "点击查看",
+        "了解更多",
+    ]
+
+    SHORT_HUMAN_TOKENS = [
+        "在吗",
+        "在么",
+        "你好",
+        "您好",
+        "方便吗",
+        "有空吗",
+        "收到",
+        "辛苦了",
+        "麻烦",
+        "请回",
+        "请回复",
+        "ok",
+        "okay",
+        "thanks",
+        "thx",
+        "hello",
+        "hi",
+        "ping",
+        "test",
+        "测试",
+    ]
+
+    SHORT_HUMAN_BLOCK_TOKENS = [
+        "discount",
+        "sale",
+        "coupon",
+        "offer",
+        "promo",
+        "shop now",
+        "buy now",
+        "order now",
+        "unsubscribe",
+        "优惠",
+        "折扣",
+        "优惠券",
+        "优惠码",
+        "限时",
+        "抢购",
+        "立减",
+        "促销",
+    ]
+
     def __init__(self, level: str = "medium") -> None:
         if level != "medium":
             raise ValueError("Only FILTER_LEVEL=medium is supported in current version")
@@ -28,34 +123,53 @@ class MailFilter:
         return any(keyword in lowered for keyword in keywords)
 
     @staticmethod
-    def _marketing_body_hit(body: str) -> bool:
-        lowered = body.lower()
-        marketing_markers = [
-            "unsubscribe",
-            "退订",
-            "manage preferences",
-            "view in browser",
-            "click here",
-            "limited time",
-            "coupon",
-            "promo",
-            "discount",
-            "sale",
-            "deal",
-            "优惠",
-            "折扣",
-            "立减",
-            "立即购买",
-            "下单",
-        ]
-        hits = sum(1 for marker in marketing_markers if marker in lowered)
-        link_count = len(re.findall(r"https?://", lowered, re.IGNORECASE))
-        tracking_link_count = len(re.findall(r"https?://[^\\s]+(utm_|ref=|trk=|mc_eid=)", lowered, re.IGNORECASE))
-        if hits >= 2:
+    def _count_keyword_hits(text: str, keywords: list[str]) -> int:
+        lowered = text.lower()
+        return sum(1 for marker in keywords if marker in lowered)
+
+    def _marketing_content_hit(self, subject: str, body: str) -> bool:
+        merged = f"{subject}\n{body}".lower()
+        keyword_hits = self._count_keyword_hits(merged, self.MARKETING_KEYWORDS)
+        cta_hits = self._count_keyword_hits(merged, self.CTA_KEYWORDS)
+        link_count = len(re.findall(r"https?://", merged, re.IGNORECASE))
+        tracking_link_count = len(
+            re.findall(
+                r"https?://[^\s]+(utm_|ref=|trk=|mc_eid=|fbclid=|gclid=|yclid=)",
+                merged,
+                re.IGNORECASE,
+            )
+        )
+        money_or_discount_hit = bool(
+            re.search(
+                r"(\$\s?\d+|¥\s?\d+|￥\s?\d+|\d+\s?%(\s?off)?|save\s?\d+\s?%)",
+                merged,
+                re.IGNORECASE,
+            )
+        )
+        if keyword_hits >= 2:
+            return True
+        if cta_hits >= 1 and (link_count >= 1 or money_or_discount_hit):
+            return True
+        if tracking_link_count >= 1 and keyword_hits >= 1:
             return True
         if link_count >= 5:
             return True
-        if tracking_link_count >= 2:
+        return False
+
+    def _is_short_human_message(self, subject: str, body: str) -> bool:
+        body_strip = body.strip()
+        if not body_strip:
+            return False
+        if len(body_strip) > 18:
+            return False
+        merged = f"{subject}\n{body}".lower()
+        if re.search(r"https?://|www\.", merged, re.IGNORECASE):
+            return False
+        if self._contains_keywords(merged, self.SHORT_HUMAN_BLOCK_TOKENS):
+            return False
+        if self._contains_keywords(merged, self.SHORT_HUMAN_TOKENS):
+            return True
+        if ("?" in merged or "？" in merged) and len(body_strip) <= 16:
             return True
         return False
 
@@ -125,7 +239,7 @@ class MailFilter:
         if self._contains_keywords(subject_lower, system_subject_keywords):
             return FilterDecision(False, "hard:system-subject", 0.95)
 
-        if self._marketing_body_hit(body):
+        if self._marketing_content_hit(subject=subject, body=body):
             return FilterDecision(False, "hard:marketing-body", 0.95)
 
         return None
@@ -182,6 +296,9 @@ class MailFilter:
         )
         if hard:
             return hard
+
+        if self._is_short_human_message(subject=subject, body=body):
+            return FilterDecision(True, "soft:short-human-signal", 0.62)
 
         score = self._human_signal_score(subject=subject, body=body)
         if score >= 0.55:
