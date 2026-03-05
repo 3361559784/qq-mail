@@ -45,7 +45,7 @@ class TestReplyFormat(unittest.TestCase):
             model_signature_template="--\n使用 {model} 模型自动生成回复",
             used_model="openai/gpt-4o",
         )
-        expected = "这是正文\n\n固定签名\n\n--\n使用 openai/gpt-4o 模型自动生成回复"
+        expected = "这是正文\n祝好，\n\n固定签名\n\n--\n使用 openai/gpt-4o 模型自动生成回复"
         self.assertEqual(body, expected)
 
 

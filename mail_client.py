@@ -117,13 +117,9 @@ def _normalize_line_for_dedupe(line: str) -> str:
     return re.sub(r"[，。！？!?,.\s]+", "", lowered)
 
 
-def _is_signature_or_closing_line(line: str) -> bool:
+def _is_closing_line(line: str) -> bool:
     stripped = line.strip()
     lowered = stripped.lower()
-    if not stripped:
-        return True
-    if re.search(r"\[(您的姓名|您的职位|您的公司)\]", stripped):
-        return True
     closing_patterns = (
         r"^祝好[！!，,。.]?$",
         r"^此致[！!，,。.]?$",
@@ -137,13 +133,65 @@ def _is_signature_or_closing_line(line: str) -> bool:
     return any(re.match(pattern, lowered, re.IGNORECASE) for pattern in closing_patterns)
 
 
+def _is_signature_line(line: str) -> bool:
+    stripped = line.strip()
+    lowered = stripped.lower()
+    if not stripped:
+        return True
+    if re.search(r"\[(recipient's name|your name|your position|your company|您的姓名|您的职位|您的公司)\]", stripped, re.I):
+        return True
+    if re.match(r"^(name|position|company)\s*:", lowered):
+        return True
+    if re.search(r"(研究工程师|工程师|职位|公司|university|linkedin)", stripped, re.I) and len(stripped) <= 40:
+        return True
+    if re.search(r"[@#].+\.(com|cn|net|org)$", lowered):
+        return True
+    if re.search(r"\+?\d[\d\- ]{6,}", stripped):
+        return True
+    return False
+
+
 def _strip_trailing_signature_block(lines: list[str]) -> list[str]:
     kept = list(lines)
-    while kept and _is_signature_or_closing_line(kept[-1]):
-        kept.pop()
     while kept and not kept[-1].strip():
         kept.pop()
+
+    preserved_closing: str | None = None
+    while kept:
+        tail = kept[-1].strip()
+        if not tail:
+            kept.pop()
+            continue
+        if _is_signature_line(tail):
+            kept.pop()
+            continue
+        if _is_closing_line(tail):
+            if preserved_closing is None:
+                preserved_closing = kept.pop().strip()
+                continue
+            kept.pop()
+            continue
+        break
+
+    while kept and not kept[-1].strip():
+        kept.pop()
+    if preserved_closing:
+        kept.append(preserved_closing)
     return kept
+
+
+def _is_template_header_line(line: str) -> bool:
+    stripped = line.strip()
+    lowered = stripped.lower()
+    if not stripped:
+        return False
+    if re.match(r"^(subject|from|to)\s*:", lowered):
+        return True
+    if re.match(r"^dear\s+sir\s*/\s*madam[,:]?$", lowered):
+        return True
+    if re.search(r"\[(recipient's name|your name|your position|your company|您的姓名|您的职位|您的公司)\]", stripped, re.I):
+        return True
+    return False
 
 
 def _limit_question_marks(text: str, max_questions: int) -> str:
@@ -163,11 +211,12 @@ def _limit_question_marks(text: str, max_questions: int) -> str:
 
 def sanitize_reply_text(text: str, max_questions: int = 1) -> str:
     raw_lines = [line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    filtered_lines = [line for line in raw_lines if not _is_template_header_line(line)]
 
     # Drop consecutive duplicates such as repeated "祝好" lines.
     deduped_lines: list[str] = []
     prev_norm = ""
-    for line in raw_lines:
+    for line in filtered_lines:
         normalized = _normalize_line_for_dedupe(line)
         if normalized and normalized == prev_norm:
             continue

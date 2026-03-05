@@ -39,25 +39,50 @@ class TestPromptBuilder(unittest.TestCase):
             subject="Azure Functions 邮件机器人",
             body="请给我一个实现建议",
             bundle=self.bundle,
+            language="zh",
         )
         pos_persona = prompt.find("Persona\n-------")
-        pos_style = prompt.find("Style Rules\n-------")
+        pos_reasoning = prompt.find("Reasoning Flow\n-------")
+        pos_pref = prompt.find("Engineering Preferences\n-------")
+        pos_tone = prompt.find("Tone Constraints\n-------")
         pos_exp = prompt.find("Relevant Experience\n-------")
-        pos_examples = prompt.find("Examples\n-------")
+        pos_examples = prompt.find("Fixed Examples\n-------")
         pos_disclosure = prompt.find("Disclosure Rule\n-------")
-        pos_email = prompt.find("Email\n-------")
+        pos_contract = prompt.find("Output Contract\n-------")
+        pos_email = prompt.find("Incoming Email\n-------")
 
         self.assertTrue(
-            pos_persona < pos_style < pos_exp < pos_examples < pos_disclosure < pos_email,
+            pos_persona
+            < pos_reasoning
+            < pos_pref
+            < pos_tone
+            < pos_exp
+            < pos_examples
+            < pos_disclosure
+            < pos_contract
+            < pos_email,
             msg=prompt,
         )
 
-    def test_prompt_without_disclosure_does_not_include_profile(self) -> None:
+    def test_prompt_contains_reasoning_flow_and_output_contract(self) -> None:
+        prompt = build_personalized_prompt(
+            sender="alice@example.com",
+            subject="How to design mail automation?",
+            body="Please provide a practical plan.",
+            bundle=self.bundle,
+            language="en",
+        )
+        self.assertIn("Reasoning Flow\n-------", prompt)
+        self.assertIn("Output Contract\n-------", prompt)
+        self.assertIn("Output body text only; do not output Subject:/From:/To: lines.", prompt)
+
+    def test_prompt_disclosure_off_by_default(self) -> None:
         prompt = build_personalized_prompt(
             sender="alice@example.com",
             subject="请看架构",
             body="我们讨论系统设计",
             bundle=self.bundle,
+            language="en",
         )
         self.assertIn("do NOT mention personal background", prompt)
         self.assertNotIn("Allowed profile context", prompt)
@@ -69,6 +94,7 @@ class TestPromptBuilder(unittest.TestCase):
             subject="你是谁",
             body="请介绍一下你自己",
             bundle=self.bundle,
+            language="en",
         )
         self.assertIn("Allowed profile context", prompt)
         self.assertIn('"role": "研究工程师"', prompt)
@@ -79,12 +105,35 @@ class TestPromptBuilder(unittest.TestCase):
             subject="agent",
             body="memory",
             bundle=self.bundle,
+            language="en",
             example_top_k=3,
         )
         self.assertIn("Example 1 Q: q1", prompt)
         self.assertIn("Example 2 Q: q2", prompt)
         self.assertIn("Example 3 Q: q3", prompt)
         self.assertNotIn("Example 4 Q: q4", prompt)
+
+    def test_prompt_language_policy_zh(self) -> None:
+        prompt = build_personalized_prompt(
+            sender="alice@example.com",
+            subject="请帮我看架构",
+            body="我们要做一个自动化 worker。",
+            bundle=self.bundle,
+            language="zh",
+        )
+        self.assertIn("你正在以刘梓恒的身份回复邮件", prompt)
+        self.assertIn("仅输出邮件正文，不要输出 Subject:/From:/To:。", prompt)
+
+    def test_prompt_language_policy_en(self) -> None:
+        prompt = build_personalized_prompt(
+            sender="alice@example.com",
+            subject="Please review architecture",
+            body="Need concise implementation guidance.",
+            bundle=self.bundle,
+            language="en",
+        )
+        self.assertIn("You are replying to an email as Liu Ziheng.", prompt)
+        self.assertIn("Output body text only; do not output Subject:/From:/To: lines.", prompt)
 
 
 if __name__ == "__main__":

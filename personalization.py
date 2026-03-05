@@ -131,6 +131,30 @@ def needs_profile_disclosure(subject: str, body: str) -> bool:
     return any(keyword in text for keyword in triggers)
 
 
+def _language_score(text: str) -> tuple[int, int]:
+    zh_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
+    zh_punc = len(re.findall(r"[，。！？；：（）【】《》“”‘’、]", text))
+    en_chars = len(re.findall(r"[A-Za-z]", text))
+    zh_score = zh_chars + (zh_punc * 2)
+    en_score = en_chars
+    return zh_score, en_score
+
+
+def detect_reply_language(subject: str, body: str) -> str:
+    sub_zh, sub_en = _language_score(subject)
+    if sub_zh > sub_en and sub_zh > 0:
+        return "zh"
+    if sub_en > sub_zh and sub_en > 0:
+        return "en"
+
+    body_zh, body_en = _language_score(body)
+    if body_zh > body_en and body_zh > 0:
+        return "zh"
+    if body_en > body_zh and body_en > 0:
+        return "en"
+    return "en"
+
+
 def _tokenize(text: str) -> set[str]:
     lowered = text.lower()
     tokens = re.findall(r"[a-z0-9][a-z0-9_./+-]*|[\u4e00-\u9fff]{2,}", lowered)
@@ -182,26 +206,56 @@ def _format_json_like(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2)
 
 
-def _format_style_rules(preferences: dict[str, object], notes_text: str) -> str:
+def _as_str_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str) and item.strip()]
+
+
+def _format_reasoning_flow(preferences: dict[str, object]) -> str:
+    configured = _as_str_list(preferences.get("response_flow"))
+    if configured:
+        return "\n".join(f"{idx}. {item}" for idx, item in enumerate(configured, start=1))
+
+    default_flow = [
+        "先识别核心工程问题",
+        "再给系统/架构视角",
+        "再给最小可执行实现",
+        "再说明风险/权衡",
+        "最后给可选增强项",
+    ]
+    return "\n".join(f"{idx}. {item}" for idx, item in enumerate(default_flow, start=1))
+
+
+def _format_engineering_preferences(preferences: dict[str, object], notes_text: str) -> str:
+    prefer_lines = _as_str_list(preferences.get("prefer"))
+    notes_lines = [line.strip() for line in notes_text.splitlines() if line.strip()]
+    lines = prefer_lines + notes_lines
+    if not lines:
+        lines = [
+            "prefer minimal architecture",
+            "avoid premature abstraction",
+            "prefer observable systems",
+            "prioritize reliability over cleverness",
+        ]
+    return "\n".join(f"- {line}" for line in lines)
+
+
+def _format_tone_constraints(preferences: dict[str, object]) -> str:
+    tone_lines = _as_str_list(preferences.get("tone"))
+    avoid_lines = _as_str_list(preferences.get("avoid"))
     lines: list[str] = []
-
-    for key in ("tone", "response_flow", "avoid", "prefer"):
-        value = preferences.get(key)
-        if isinstance(value, list) and value:
-            lines.append(f"{key}:")
-            for item in value:
-                if isinstance(item, str):
-                    lines.append(f"- {item}")
-            lines.append("")
-
-    if notes_text:
-        lines.append("engineering_notes:")
-        for line in notes_text.splitlines():
-            stripped = line.strip()
-            if stripped:
-                lines.append(f"- {stripped}")
-
-    return "\n".join(lines).strip()
+    for item in tone_lines:
+        lines.append(f"- {item}")
+    for item in avoid_lines:
+        lines.append(f"- avoid: {item}")
+    lines.extend(
+        [
+            "- answer like an engineer reasoning through the problem",
+            "- avoid documentation-writer voice and generic preamble",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def _format_projects(projects: list[dict[str, object]]) -> str:
@@ -233,11 +287,49 @@ def _format_examples(examples: list[dict[str, str]]) -> str:
     return "\n".join(lines)
 
 
+def build_output_contract(language: str, style_mode: str = "polite") -> str:
+    normalized_language = "zh" if language == "zh" else "en"
+    polite_line = (
+        "- 可以保留最多 1 行简短礼貌收尾，但不要出现姓名/职位/公司署名。"
+        if normalized_language == "zh"
+        else "- You may keep at most one brief polite closing line, but no personal signature."
+    )
+    if style_mode != "polite":
+        polite_line = (
+            "- 默认不要写礼貌收尾。"
+            if normalized_language == "zh"
+            else "- Do not add polite closing lines by default."
+        )
+
+    if normalized_language == "zh":
+        return "\n".join(
+            [
+                "- 仅输出邮件正文，不要输出 Subject:/From:/To:。",
+                "- 禁止占位符：[Recipient's Name]、[Your Name]、[Your Position]、[Your Company]、[您的姓名]、[您的职位]、[您的公司]。",
+                "- 不要输出 Markdown 列表、代码块或 JSON。",
+                "- 最多允许 1 个澄清问题。",
+                polite_line,
+            ]
+        )
+
+    return "\n".join(
+        [
+            "- Output body text only; do not output Subject:/From:/To: lines.",
+            "- Do not use placeholders: [Recipient's Name], [Your Name], [Your Position], [Your Company], [您的姓名], [您的职位], [您的公司].",
+            "- Do not output markdown list, code block, or JSON.",
+            "- Ask at most one clarifying question.",
+            polite_line,
+        ]
+    )
+
+
 def build_personalized_prompt(
     sender: str,
     subject: str,
     body: str,
     bundle: PersonalizationBundle,
+    language: str = "en",
+    style_mode: str = "polite",
     memory_top_k: int = 3,
     example_top_k: int = 3,
 ) -> str:
@@ -250,37 +342,61 @@ def build_personalized_prompt(
     selected_examples = select_fixed_examples(bundle.examples, k=example_top_k)
     allow_disclosure = needs_profile_disclosure(subject=subject, body=body)
 
-    disclosure_lines = []
+    resolved_language = "zh" if language == "zh" else "en"
+    disclosure_lines: list[str] = []
     if allow_disclosure:
-        disclosure_lines.append(
-            "Sender explicitly asked about background; you may mention background in 1-2 concise sentences."
-        )
-        disclosure_lines.append("Allowed profile context:")
+        if resolved_language == "zh":
+            disclosure_lines.append("发件人明确询问了背景信息，可用 1-2 句简短说明。")
+            disclosure_lines.append("允许引用的背景信息：")
+        else:
+            disclosure_lines.append(
+                "Sender explicitly asked about background; you may mention background in 1-2 concise sentences."
+            )
+            disclosure_lines.append("Allowed profile context:")
         disclosure_lines.append(_format_json_like(bundle.profile))
     else:
-        disclosure_lines.append("If sender does not explicitly ask about background, do NOT mention personal background or resume.")
+        if resolved_language == "zh":
+            disclosure_lines.append("若发件人未明确询问背景，不要提及个人履历、学校或工作经历。")
+        else:
+            disclosure_lines.append(
+                "If sender does not explicitly ask about background, do NOT mention personal background or resume."
+            )
 
     return (
-        "You are replying to an email as Liu Ziheng.\n\n"
+        (
+            "你正在以刘梓恒的身份回复邮件，保持工程化思考，不要写模板腔。\n\n"
+            if resolved_language == "zh"
+            else "You are replying to an email as Liu Ziheng. Think step-by-step like an engineer.\n\n"
+        )
+        +
         "Persona\n"
         "-------\n"
         f"{bundle.persona_text}\n\n"
-        "Style Rules\n"
+        "Reasoning Flow\n"
         "-------\n"
-        f"{_format_style_rules(bundle.preferences, bundle.notes_text)}\n\n"
+        f"{_format_reasoning_flow(bundle.preferences)}\n\n"
+        "Engineering Preferences\n"
+        "-------\n"
+        f"{_format_engineering_preferences(bundle.preferences, bundle.notes_text)}\n\n"
+        "Tone Constraints\n"
+        "-------\n"
+        f"{_format_tone_constraints(bundle.preferences)}\n\n"
         "Relevant Experience\n"
         "-------\n"
         f"{_format_projects(relevant_projects)}\n\n"
-        "Examples\n"
+        "Fixed Examples\n"
         "-------\n"
         f"{_format_examples(selected_examples)}\n\n"
         "Disclosure Rule\n"
         "-------\n"
         f"{' '.join(disclosure_lines)}\n\n"
-        "Email\n"
+        "Output Contract\n"
+        "-------\n"
+        f"{build_output_contract(language=resolved_language, style_mode=style_mode)}\n\n"
+        "Incoming Email\n"
         "-------\n"
         f"From: {sender}\n"
         f"Subject: {subject}\n"
-        "Body:\n"
+        "Message:\n"
         f"{body}\n"
     )

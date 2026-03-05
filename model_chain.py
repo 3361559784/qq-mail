@@ -10,7 +10,11 @@ from personalization import (
     PersonalizationBundle,
     PersonalizationLoadError,
     build_personalized_prompt,
+    detect_reply_language,
     load_personalization_bundle,
+    needs_profile_disclosure,
+    select_fixed_examples,
+    select_relevant_memories,
 )
 
 
@@ -52,7 +56,25 @@ class ModelChainClient:
         except PersonalizationLoadError as exc:
             self.logger.warning("Personalization disabled due to load error: %s", exc)
 
-    def _build_default_prompt(self, sender: str, subject: str, body: str) -> str:
+    def _build_default_prompt(self, sender: str, subject: str, body: str, language: str) -> str:
+        if language == "en":
+            return (
+                "You are an email auto-reply assistant.\n"
+                "Goal: generate a professional, polite, concise email body that can be sent directly.\n"
+                "Rules:\n"
+                "1) Keep 2-4 sentences by default.\n"
+                "2) If the question is clear, do not ask unnecessary follow-up questions.\n"
+                "3) If information is missing, ask at most one clarifying question.\n"
+                "4) Do not fabricate facts or reveal reasoning traces.\n"
+                "5) Output body text only, no JSON/Markdown/Subject/From/To lines.\n"
+                "6) Do not output placeholders like [Recipient's Name] or [Your Name].\n"
+                "7) You may keep one brief polite closing line, but no personal signature.\n\n"
+                f"From: {sender}\n"
+                f"Subject: {subject}\n"
+                "Message:\n"
+                f"{body}\n"
+            )
+
         return (
             "你是中文邮件自动回复助手。\n"
             "目标：给来信生成专业礼貌、简洁直答、可直接发送的邮件回复。\n"
@@ -61,26 +83,53 @@ class ModelChainClient:
             "2) 若对方问题明确，不要反问。\n"
             "3) 若信息不足，最多追问 1 个关键问题。\n"
             "4) 不要编造事实，不要输出解释过程。\n"
-            "5) 仅输出邮件正文，不要输出 JSON 或 Markdown。\n"
+            "5) 仅输出邮件正文，不要输出 JSON、Markdown、Subject:/From:/To:。\n"
             "6) 不要输出任何占位符（如 [您的姓名]、[您的职位]、[您的公司]）。\n"
-            "7) 不要输出任何落款签名或结尾客套（如 祝好、此致敬礼、Best regards），系统会自动追加签名。\n\n"
+            "7) 可保留 1 行简短礼貌收尾，但不要出现姓名/职位/公司署名。\n\n"
             f"发件人: {sender}\n"
             f"邮件主题: {subject}\n"
             "邮件内容:\n"
             f"{body}\n"
         )
 
-    def _build_prompt(self, sender: str, subject: str, body: str) -> str:
+    def _build_prompt(self, sender: str, subject: str, body: str) -> tuple[str, str, bool, int, int]:
+        resolved_language = detect_reply_language(subject=subject, body=body)
         if self.personalization_bundle is None:
-            return self._build_default_prompt(sender=sender, subject=subject, body=body)
+            return (
+                self._build_default_prompt(sender=sender, subject=subject, body=body, language=resolved_language),
+                resolved_language,
+                False,
+                0,
+                0,
+            )
 
-        return build_personalized_prompt(
+        memory_top_k = 3
+        example_top_k = 3
+        allow_disclosure = needs_profile_disclosure(subject=subject, body=body)
+        relevant_projects = select_relevant_memories(
+            subject=subject,
+            body=body,
+            projects=self.personalization_bundle.projects,
+            top_k=memory_top_k,
+        )
+        selected_examples = select_fixed_examples(self.personalization_bundle.examples, k=example_top_k)
+        prompt = build_personalized_prompt(
             sender=sender,
             subject=subject,
             body=body,
             bundle=self.personalization_bundle,
-            memory_top_k=3,
-            example_top_k=3,
+            language=resolved_language,
+            style_mode="polite",
+            memory_top_k=memory_top_k,
+            example_top_k=example_top_k,
+        )
+
+        return (
+            prompt,
+            resolved_language,
+            allow_disclosure,
+            len(selected_examples),
+            len(relevant_projects),
         )
 
     @staticmethod
@@ -120,14 +169,31 @@ class ModelChainClient:
         output_cap: int,
     ) -> str:
         bounded_body = self._truncate_body_by_input_cap(body=body, input_cap=input_cap)
+        prompt, resolved_language, allow_disclosure, examples_count, memories_count = self._build_prompt(
+            sender=sender,
+            subject=subject,
+            body=bounded_body,
+        )
+        self.logger.info(
+            "PROMPT_PROFILE | style=polite | lang_mode=auto | lang_resolved=%s | disclosure=%s | examples=%d | memories=%d",
+            resolved_language,
+            "on" if allow_disclosure else "off",
+            examples_count,
+            memories_count,
+        )
+        system_content = (
+            "你是资深中文商务邮件助手。请使用中文输出，保持专业、礼貌、简洁，可直接发送。"
+            if resolved_language == "zh"
+            else "You are an experienced email assistant. Reply in English, concise and professional, ready to send."
+        )
         payload = {
             "model": model,
             "messages": [
                 {
                     "role": "system",
-                    "content": "你是资深中文商务邮件助手，输出要简洁并可直接发送。",
+                    "content": system_content,
                 },
-                {"role": "user", "content": self._build_prompt(sender, subject, bounded_body)},
+                {"role": "user", "content": prompt},
             ],
             "temperature": 0.3,
             "max_tokens": output_cap,

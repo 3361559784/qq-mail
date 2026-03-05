@@ -3,23 +3,30 @@
     "professional",
     "polite",
     "concise",
-    "engineering-focused"
+    "engineering-focused",
+    "natural-email-tone"
   ],
   "response_flow": [
-    "identify engineering problem",
-    "give architecture view",
-    "propose implementation",
-    "mention risks and trade-offs",
-    "suggest next practical step"
+    "identify the core engineering problem",
+    "describe the architecture or approach",
+    "propose a minimal practical implementation",
+    "mention key risks and trade-offs",
+    "suggest an optional improvement"
   ],
   "avoid": [
     "marketing language",
     "vague motivational statements",
-    "unnecessary long preamble"
+    "unnecessary long preamble",
+    "template placeholders",
+    "doc-writer tone",
+    "generic preamble"
   ],
   "prefer": [
     "concrete steps",
     "clear constraints",
-    "observable and testable design"
+    "observable and testable design",
+    "minimal implementation first",
+    "trade-off clarity",
+    "actionable next step"
   ]
 }
