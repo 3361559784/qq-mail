@@ -198,6 +198,7 @@ class MailFilter:
     ) -> FilterDecision | None:
         sender_lower = sender.lower().strip()
         subject_lower = subject.lower().strip()
+        body_lower = body.lower().strip()
         auto_submitted = headers.get("auto-submitted", "").strip().lower()
         precedence = headers.get("precedence", "").strip().lower()
         return_path = headers.get("return-path", "").strip().lower().replace(" ", "")
@@ -225,35 +226,30 @@ class MailFilter:
         if any(flag in sender_lower for flag in ["no-reply", "noreply", "mailer-daemon", "postmaster"]):
             return FilterDecision(False, "hard:non-human-sender", 1.0)
 
-        system_subject_keywords = [
+        auth_subject_keywords = [
             "验证码",
-            "账单",
-            "通知",
-            "订阅",
-            "促销",
-            "newsletter",
-            "notification",
             "otp",
-            "verify",
-            "verification",
-            "receipt",
-            "invoice",
-            "system alert",
-            "limited time",
-            "discount",
-            "sale",
-            "coupon",
-            "offer",
-            "deal",
-            "black friday",
-            "cyber monday",
-            "优惠",
-            "折扣",
-            "活动",
-            "福利",
+            "verification code",
+            "two-step verification",
+            "2fa",
+            "password reset",
+            "reset your password",
         ]
-        if self._contains_keywords(subject_lower, system_subject_keywords):
+        if self._contains_keywords(subject_lower, auth_subject_keywords):
             return FilterDecision(False, "hard:system-subject", 0.95)
+
+        bulk_subject_keywords = [
+            "newsletter",
+            "system alert",
+            "自动通知",
+            "订阅更新",
+            "subscription update",
+        ]
+        if self._contains_keywords(subject_lower, bulk_subject_keywords):
+            link_count = len(re.findall(r"https?://", body_lower, re.IGNORECASE))
+            has_bulk_markers = "unsubscribe" in body_lower or "manage preferences" in body_lower
+            if link_count >= 2 or has_bulk_markers:
+                return FilterDecision(False, "hard:system-subject", 0.9)
 
         if self._marketing_content_hit(subject=subject, body=body):
             return FilterDecision(False, "hard:marketing-body", 0.95)

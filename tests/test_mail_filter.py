@@ -152,6 +152,32 @@ class TestMailFilter(unittest.TestCase):
         self.assertFalse(decision.should_reply)
         self.assertEqual(decision.reason, "hard:marketing-body")
 
+    def test_legit_notification_subject_is_not_blocked(self) -> None:
+        decision = self.filter.evaluate(
+            headers={},
+            sender="hr@example.com",
+            subject="面试通知",
+            body="您好，想邀请您下周参加面试，方便确认一下时间吗？",
+            denylist_hit=False,
+            allowlist_hit=False,
+            frequent_hit=False,
+        )
+        self.assertTrue(decision.should_reply)
+        self.assertEqual(decision.reason, "soft:human-signal")
+
+    def test_otp_subject_is_blocked(self) -> None:
+        decision = self.filter.evaluate(
+            headers={},
+            sender="robot@example.com",
+            subject="您的验证码是 123456",
+            body="验证码 123456 五分钟内有效。",
+            denylist_hit=False,
+            allowlist_hit=False,
+            frequent_hit=False,
+        )
+        self.assertFalse(decision.should_reply)
+        self.assertEqual(decision.reason, "hard:system-subject")
+
 
 if __name__ == "__main__":
     unittest.main()

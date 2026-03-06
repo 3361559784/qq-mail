@@ -51,6 +51,8 @@ class ProcessedStore(Protocol):
 
     def mark_processed(self, dedupe_key: str, sender_email: str) -> bool: ...
 
+    def clear_processed(self, dedupe_key: str) -> None: ...
+
 
 class FrequentStore(Protocol):
     def record(self, sender_email: str, ts: int | None = None) -> None: ...
@@ -91,6 +93,12 @@ class StateStore:
         self._processed.add(dedupe_key)
         self._save()
         return True
+
+    def clear_processed(self, dedupe_key: str) -> None:
+        if dedupe_key not in self._processed:
+            return
+        self._processed.remove(dedupe_key)
+        self._save()
 
 
 class TableProcessedStore:
@@ -140,6 +148,15 @@ class TableProcessedStore:
         except Exception as exc:
             if _is_exists_error(exc):
                 return False
+            raise
+
+    def clear_processed(self, dedupe_key: str) -> None:
+        row_key = build_row_key(dedupe_key)
+        try:
+            self._table.delete_entity(partition_key=self.PARTITION_KEY, row_key=row_key)
+        except Exception as exc:
+            if _is_not_found_error(exc):
+                return
             raise
 
 
