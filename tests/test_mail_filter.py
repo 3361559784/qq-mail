@@ -152,6 +152,19 @@ class TestMailFilter(unittest.TestCase):
         self.assertFalse(decision.should_reply)
         self.assertEqual(decision.reason, "hard:marketing-body")
 
+    def test_human_notice_subject_is_not_hard_filtered_by_subject_alone(self) -> None:
+        decision = self.filter.evaluate(
+            headers={},
+            sender="hr@example.com",
+            subject="面试通知",
+            body="你好，想约你下周二下午进行一轮技术面试，方便吗？",
+            denylist_hit=False,
+            allowlist_hit=False,
+            frequent_hit=False,
+        )
+        self.assertTrue(decision.should_reply)
+        self.assertNotEqual(decision.reason, "hard:system-subject")
+
 
 if __name__ == "__main__":
     unittest.main()

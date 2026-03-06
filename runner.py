@@ -261,26 +261,6 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
             errors += 1
             continue
 
-        try:
-            # Concurrent-safe dedupe claim: only one instance can create this key.
-            claimed = state_store.mark_processed(item.dedupe_key, item.sender_email)
-        except Exception:
-            logger.exception("Failed to claim message before sending: %s", item.dedupe_key)
-            errors += 1
-            continue
-        if not claimed:
-            skipped += 1
-            logger.info("Skip dedupe claimed by another worker: %s", item.dedupe_key)
-            _log_decision(
-                logger=logger,
-                action="skip",
-                sender=item.sender_email,
-                subject=item.subject,
-                reason="claimed-by-other-worker",
-                dedupe_key=item.dedupe_key,
-            )
-            continue
-
         body = compose_reply_body(
             ai_text=model_reply.text,
             reply_signature=settings.reply_signature,
@@ -336,6 +316,16 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
                 mail_client.mark_answered(item.uid)
             except Exception:
                 logger.warning("Failed to mark answered for uid=%s", item.uid, exc_info=True)
+            try:
+                marked = state_store.mark_processed(item.dedupe_key, item.sender_email)
+                if not marked:
+                    logger.warning(
+                        "Processed key already existed after successful send dedupe=%s",
+                        item.dedupe_key,
+                    )
+            except Exception:
+                logger.exception("Failed to mark replied message processed: %s", item.dedupe_key)
+                errors += 1
             try:
                 frequent.record(item.sender_email)
             except Exception:
