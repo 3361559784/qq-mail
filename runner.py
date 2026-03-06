@@ -261,8 +261,9 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
             errors += 1
             continue
 
+
         try:
-            # Concurrent-safe dedupe claim: only one instance can create this key.
+            # Claim before send to prevent concurrent duplicate delivery.
             claimed = state_store.mark_processed(item.dedupe_key, item.sender_email)
         except Exception:
             logger.exception("Failed to claim message before sending: %s", item.dedupe_key)
@@ -358,6 +359,15 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
             replied += 1
         except Exception:
             logger.exception("SMTP send failed dedupe=%s sender=%s", item.dedupe_key, item.sender_email)
+            try:
+                released = state_store.unmark_processed(item.dedupe_key)
+                if not released:
+                    logger.warning(
+                        "Claim key missing when rolling back failed send dedupe=%s",
+                        item.dedupe_key,
+                    )
+            except Exception:
+                logger.exception("Failed to release failed-send claim: %s", item.dedupe_key)
             _log_decision(
                 logger=logger,
                 action="error",
