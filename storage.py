@@ -49,7 +49,11 @@ def resolve_table_connection_string(explicit: str) -> str:
 class ProcessedStore(Protocol):
     def is_processed(self, dedupe_key: str) -> bool: ...
 
+    def claim_processing(self, dedupe_key: str, sender_email: str, ttl_seconds: int = 1800) -> bool: ...
+
     def mark_processed(self, dedupe_key: str, sender_email: str) -> bool: ...
+
+    def clear_processing(self, dedupe_key: str) -> None: ...
 
 
 class FrequentStore(Protocol):
@@ -62,6 +66,7 @@ class StateStore:
     def __init__(self, path: Path) -> None:
         self.path = path
         self._processed = self._load()
+        self._processing: set[str] = set()
 
     def _load(self) -> set[str]:
         if not self.path.exists():
@@ -84,17 +89,33 @@ class StateStore:
     def is_processed(self, dedupe_key: str) -> bool:
         return dedupe_key in self._processed
 
+    def claim_processing(self, dedupe_key: str, sender_email: str, ttl_seconds: int = 1800) -> bool:
+        del sender_email, ttl_seconds
+        if dedupe_key in self._processed:
+            return False
+        if dedupe_key in self._processing:
+            return False
+        self._processing.add(dedupe_key)
+        return True
+
     def mark_processed(self, dedupe_key: str, sender_email: str) -> bool:
         del sender_email
         if dedupe_key in self._processed:
             return False
+        self._processing.discard(dedupe_key)
         self._processed.add(dedupe_key)
         self._save()
         return True
 
+    def clear_processing(self, dedupe_key: str) -> None:
+        self._processing.discard(dedupe_key)
+
 
 class TableProcessedStore:
     PARTITION_KEY = "processed"
+    STATUS_PROCESSING = "processing"
+    STATUS_PROCESSED = "processed"
+    DEFAULT_PROCESSING_TTL_SECONDS = 1800
 
     def __init__(
         self,
@@ -115,15 +136,72 @@ class TableProcessedStore:
         service.create_table_if_not_exists(table_name=table_name)
         self._table = service.get_table_client(table_name=table_name)
 
+    @staticmethod
+    def _now_ts() -> int:
+        return int(time.time())
+
     def is_processed(self, dedupe_key: str) -> bool:
         row_key = build_row_key(dedupe_key)
         try:
-            self._table.get_entity(partition_key=self.PARTITION_KEY, row_key=row_key)
-            return True
+            entity = self._table.get_entity(partition_key=self.PARTITION_KEY, row_key=row_key)
+            status = str(entity.get("status", self.STATUS_PROCESSED))
+            if status == self.STATUS_PROCESSED:
+                return True
+            if status == self.STATUS_PROCESSING:
+                expires_at = int(entity.get("processing_expires_at", 0) or 0)
+                if expires_at and expires_at < self._now_ts():
+                    return False
+                return False
+            return False
         except Exception as exc:
             if _is_not_found_error(exc):
                 return False
             raise
+
+    def claim_processing(self, dedupe_key: str, sender_email: str, ttl_seconds: int = DEFAULT_PROCESSING_TTL_SECONDS) -> bool:
+        row_key = build_row_key(dedupe_key)
+        now_ts = self._now_ts()
+        expires_at = now_ts + max(ttl_seconds, 60)
+        entity = {
+            "PartitionKey": self.PARTITION_KEY,
+            "RowKey": row_key,
+            "dedupe_key": dedupe_key,
+            "sender_email": sender_email.lower().strip(),
+            "status": self.STATUS_PROCESSING,
+            "processing_expires_at": expires_at,
+            "processed_at_utc": None,
+        }
+        try:
+            self._table.create_entity(entity=entity)
+            return True
+        except Exception as exc:
+            if not _is_exists_error(exc):
+                raise
+
+            try:
+                existing = self._table.get_entity(partition_key=self.PARTITION_KEY, row_key=row_key)
+            except Exception as get_exc:
+                if _is_not_found_error(get_exc):
+                    # Concurrent delete between create and get; retry claim.
+                    self._table.create_entity(entity=entity)
+                    return True
+                raise
+
+            status = str(existing.get("status", self.STATUS_PROCESSED))
+            if status == self.STATUS_PROCESSED:
+                return False
+
+            expires = int(existing.get("processing_expires_at", 0) or 0)
+            if expires and expires > now_ts:
+                return False
+
+            entity["processing_expires_at"] = expires_at
+            try:
+                self._table.upsert_entity(entity=entity, mode=UpdateMode.REPLACE if UpdateMode else None)
+            except TypeError:
+                # UpdateMode may be None when azure dependency is not installed; ignore mode.
+                self._table.upsert_entity(entity=entity)
+            return True
 
     def mark_processed(self, dedupe_key: str, sender_email: str) -> bool:
         row_key = build_row_key(dedupe_key)
@@ -132,14 +210,53 @@ class TableProcessedStore:
             "RowKey": row_key,
             "dedupe_key": dedupe_key,
             "sender_email": sender_email.lower().strip(),
+            "status": self.STATUS_PROCESSED,
+            "processing_expires_at": None,
             "processed_at_utc": _utc_iso(),
         }
         try:
             self._table.create_entity(entity=entity)
             return True
         except Exception as exc:
-            if _is_exists_error(exc):
+            if not _is_exists_error(exc):
+                raise
+
+            try:
+                existing = self._table.get_entity(partition_key=self.PARTITION_KEY, row_key=row_key)
+            except Exception as get_exc:
+                if _is_not_found_error(get_exc):
+                    self._table.create_entity(entity=entity)
+                    return True
+                raise
+
+            status = str(existing.get("status", self.STATUS_PROCESSED))
+            if status == self.STATUS_PROCESSED:
                 return False
+
+            try:
+                self._table.upsert_entity(entity=entity, mode=UpdateMode.REPLACE if UpdateMode else None)
+            except TypeError:
+                self._table.upsert_entity(entity=entity)
+            return True
+
+    def clear_processing(self, dedupe_key: str) -> None:
+        row_key = build_row_key(dedupe_key)
+        try:
+            entity = self._table.get_entity(partition_key=self.PARTITION_KEY, row_key=row_key)
+        except Exception as exc:
+            if _is_not_found_error(exc):
+                return
+            raise
+
+        status = str(entity.get("status", self.STATUS_PROCESSED))
+        if status != self.STATUS_PROCESSING:
+            return
+
+        try:
+            self._table.delete_entity(partition_key=self.PARTITION_KEY, row_key=row_key)
+        except Exception as exc:
+            if _is_not_found_error(exc):
+                return
             raise
 
 

@@ -227,32 +227,29 @@ class MailFilter:
 
         system_subject_keywords = [
             "验证码",
-            "账单",
-            "通知",
             "订阅",
-            "促销",
             "newsletter",
-            "notification",
             "otp",
-            "verify",
-            "verification",
-            "receipt",
-            "invoice",
             "system alert",
-            "limited time",
-            "discount",
-            "sale",
-            "coupon",
-            "offer",
-            "deal",
-            "black friday",
-            "cyber monday",
-            "优惠",
-            "折扣",
-            "活动",
-            "福利",
+            "one-time password",
+            "verification code",
+            "账户安全",
+            "account security",
+            "安全提醒",
         ]
-        if self._contains_keywords(subject_lower, system_subject_keywords):
+        subject_hit = self._contains_keywords(subject_lower, system_subject_keywords)
+        header_hint = any(
+            [
+                auto_submitted and auto_submitted != "no",
+                precedence in {"bulk", "list", "junk", "auto_reply"},
+                self._has_header(headers, "List-Unsubscribe"),
+                self._has_header(headers, "List-Id"),
+                self._has_header(headers, "List-Post"),
+                "no-reply" in sender_lower or "noreply" in sender_lower,
+                "undisclosed-recipients" in to_header,
+            ]
+        )
+        if subject_hit and (header_hint or self._marketing_content_hit(subject=subject, body=body)):
             return FilterDecision(False, "hard:system-subject", 0.95)
 
         if self._marketing_content_hit(subject=subject, body=body):

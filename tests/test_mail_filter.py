@@ -152,6 +152,19 @@ class TestMailFilter(unittest.TestCase):
         self.assertFalse(decision.should_reply)
         self.assertEqual(decision.reason, "hard:marketing-body")
 
+    def test_generic_notification_subject_without_system_signals_is_allowed(self) -> None:
+        decision = self.filter.evaluate(
+            headers={},
+            sender="colleague@example.com",
+            subject="会议通知：下周三上午",
+            body="下周三上午 10 点讨论项目里程碑，麻烦确认时间。",
+            denylist_hit=False,
+            allowlist_hit=False,
+            frequent_hit=False,
+        )
+        self.assertTrue(decision.should_reply)
+        self.assertTrue(decision.reason.startswith("soft:"))
+
 
 if __name__ == "__main__":
     unittest.main()
