@@ -262,8 +262,7 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
             continue
 
         try:
-            # Concurrent-safe dedupe claim: only one instance can create this key.
-            claimed = state_store.mark_processed(item.dedupe_key, item.sender_email)
+            claimed = state_store.claim_processing(item.dedupe_key, item.sender_email)
         except Exception:
             logger.exception("Failed to claim message before sending: %s", item.dedupe_key)
             errors += 1
@@ -303,6 +302,14 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
                 item.dedupe_key,
                 _truncate_preview(body),
             )
+
+            try:
+                processed = state_store.mark_processed(item.dedupe_key, item.sender_email)
+                if not processed:
+                    logger.warning("Message already marked processed after send: %s", item.dedupe_key)
+            except Exception:
+                logger.exception("Failed to mark processed after send: %s", item.dedupe_key)
+                errors += 1
 
             if settings.self_notify_on_reply:
                 notify_to = (settings.self_notify_email or settings.qq_email).strip()
@@ -367,6 +374,10 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
                 dedupe_key=item.dedupe_key,
             )
             errors += 1
+            try:
+                state_store.clear_processing(item.dedupe_key)
+            except Exception:
+                logger.warning("Failed to clear processing lock for %s", item.dedupe_key, exc_info=True)
             continue
 
     return RunStats(fetched=len(mails), replied=replied, skipped=skipped, errors=errors)
