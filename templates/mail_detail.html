@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Mail {{ detail.mail.id }}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <p><a href="/mails">Back</a></p>
+  <h1>{{ detail.mail.subject }}</h1>
+  <p><strong>From:</strong> {{ detail.mail.sender_email }} | <strong>Date:</strong> {{ detail.mail.received_at_utc }}</p>
+  <p><strong>Category:</strong> {{ detail.mail.category }} | <strong>Priority:</strong> {{ detail.mail.priority }} | <strong>Strategy:</strong> {{ detail.mail.strategy }}</p>
+
+  <h3>Evidence</h3>
+  <ul>
+    {% for item in evidence %}<li>{{ item }}</li>{% endfor %}
+  </ul>
+
+  <h3>Body</h3>
+  <pre>{{ detail.mail.body_text }}</pre>
+
+  <h3>Attachments</h3>
+  <ul>
+    {% for a in detail.attachments %}
+      <li>
+        {{ a.filename }} ({{ a.size_bytes }} bytes) - {{ a.download_status }}
+        {% if a.download_status == 'downloaded' %}
+          <a href="/attachments/{{ a.id }}/download">download</a>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+
+  <h3>Tasks</h3>
+  <ul>
+    {% for t in detail.tasks %}
+      <li>#{{ t.id }} [{{ t.status }}] {{ t.title }} ({{ t.priority }})</li>
+    {% endfor %}
+  </ul>
+</body>
+</html>

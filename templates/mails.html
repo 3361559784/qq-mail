@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Mails - {{ category }}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <h1>Mails ({{ category }})</h1>
+  <p><a href="/">Dashboard</a></p>
+  <table>
+    <tr><th>ID</th><th>Date</th><th>From</th><th>Subject</th><th>Category</th><th>Priority</th></tr>
+    {% for row in rows %}
+    <tr>
+      <td><a href="/mail/{{ row.id }}">{{ row.id }}</a></td>
+      <td>{{ row.received_at_utc }}</td>
+      <td>{{ row.sender_email }}</td>
+      <td>{{ row.subject }}</td>
+      <td>{{ row.category or '-' }}</td>
+      <td>{{ row.priority or '-' }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</body>
+</html>

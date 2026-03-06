@@ -3,7 +3,11 @@ local.settings.json
 __pycache__/
 *.pyc
 .idea/
+.vscode/
 data/*
 !data/.gitkeep
 !data/allow_senders.example.txt
 !data/deny_senders.txt
+
+.python_packages
+.venv

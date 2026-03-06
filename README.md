@@ -38,6 +38,12 @@ pip install -r requirements.txt
 python3 main.py --once --verbose
 ```
 
+## 暂停 Azure 自动链路（本地开发阶段）
+
+1. GitHub Actions 仅保留手动触发（当前工作流已切换为 `workflow_dispatch`）。
+2. Azure Portal -> Function App -> 环境变量新增：`AzureWebJobs.qq_mail_timer.Disabled=1`。
+3. 可选保险开关：`QQ_MAIL_TIMER_DISABLED=true`（代码层直接跳过 timer 执行）。
+
 ## Azure Functions 调度
 
 - `TIMER_SCHEDULE` 使用 UTC cron。
@@ -65,7 +71,7 @@ Table 默认表名：
 
 GitHub Actions：
 
-- push 到 `main` 自动触发
+- 当前仅 `workflow_dispatch` 手动触发（本地 Workbench 开发阶段暂停自动部署）
 - Python `3.11`
 - 先执行单测，再通过 `Azure/functions-action@v1` 部署到 Flex Consumption
 
@@ -73,6 +79,32 @@ GitHub Actions：
 
 ```bash
 python3 -m unittest discover -s tests -v
+```
+
+## Workbench（本地邮件工作台）
+
+### 本地 Web
+
+```bash
+python3 main.py workbench-web --host 127.0.0.1 --port 8787
+```
+
+### 单次同步
+
+```bash
+python3 main.py workbench-sync
+```
+
+### 向量问答
+
+```bash
+python3 main.py workbench-search \"去年比赛邮件提到的截止时间是什么\"
+```
+
+### 任务列表
+
+```bash
+python3 main.py workbench-tasks --status open
 ```
 
 ## 排查是否已回复

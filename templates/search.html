@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Search</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <p><a href="/">Dashboard</a></p>
+  <h1>Vector Search</h1>
+  <form method="get" action="/search">
+    <input type="text" name="q" value="{{ query }}" style="width: 70%;" />
+    <button type="submit">Search</button>
+  </form>
+
+  {% if result %}
+  <h3>Answer</h3>
+  <p>{{ result.answer }}</p>
+
+  <h3>Hits</h3>
+  <ol>
+    {% for hit in result.hits %}
+      <li>
+        <a href="/mail/{{ hit.mail_id }}">{{ hit.subject }}</a>
+        ({{ hit.sender }}, score={{ '%.3f'|format(hit.score) }})
+        <div>{{ hit.snippet }}</div>
+      </li>
+    {% endfor %}
+  </ol>
+  {% endif %}
+</body>
+</html>

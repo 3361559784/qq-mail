@@ -1,9 +1,6 @@
 name: Build and deploy Python project to Azure Function App - qq-mail
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:

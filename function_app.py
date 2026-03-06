@@ -21,6 +21,9 @@ app = func.FunctionApp()
 )
 def qq_mail_timer(timer: func.TimerRequest) -> None:
     del timer
+    if os.getenv("QQ_MAIL_TIMER_DISABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
+        LOGGER.info("qq_mail_timer disabled by QQ_MAIL_TIMER_DISABLED")
+        return
     settings = load_settings()
     stats = run_once(settings=settings, logger=LOGGER)
     LOGGER.info(

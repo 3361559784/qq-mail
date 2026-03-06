@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Tasks - {{ status }}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <p><a href="/">Dashboard</a></p>
+  <h1>Tasks ({{ status }})</h1>
+  <table>
+    <tr><th>ID</th><th>Status</th><th>Priority</th><th>Title</th><th>Mail</th><th>Action</th></tr>
+    {% for t in rows %}
+    <tr>
+      <td>{{ t.id }}</td>
+      <td>{{ t.status }}</td>
+      <td>{{ t.priority }}</td>
+      <td>{{ t.title }}</td>
+      <td><a href="/mail/{{ t.mail_id }}">{{ t.subject }}</a></td>
+      <td>
+        {% if t.status != 'done' %}
+        <form method="post" action="/tasks/{{ t.id }}/done">
+          <button type="submit">Done</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+</body>
+</html>

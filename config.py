@@ -46,6 +46,19 @@ class Settings:
     processed_table_name: str
     frequent_table_name: str
     personalization_dir: Path
+    workbench_enabled: bool
+    workbench_db_path: Path
+    workbench_attach_dir: Path
+    workbench_attach_max_mb: int
+    workbench_sync_days_initial: int
+    workbench_sync_interval_seconds: int
+    workbench_read_only: bool
+    workbench_llm_model: str
+    workbench_embed_model: str
+    workbench_llm_only_candidates: bool
+    workbench_vector_top_k: int
+    github_embedding_api_url: str
+    workbench_faiss_index_path: Path
 
 
 def _env(name: str, default: str | None = None, required: bool = False) -> str:
@@ -126,4 +139,20 @@ def load_settings() -> Settings:
         processed_table_name=_env("PROCESSED_TABLE_NAME", "processedstate"),
         frequent_table_name=_env("FREQUENT_TABLE_NAME", "frequentsenderstate"),
         personalization_dir=Path("personalization"),
+        workbench_enabled=_to_bool("WORKBENCH_ENABLED", "true"),
+        workbench_db_path=Path(_env("WORKBENCH_DB_PATH", "data/workbench.db")),
+        workbench_attach_dir=Path(_env("WORKBENCH_ATTACH_DIR", "data/attachments")),
+        workbench_attach_max_mb=_to_int("WORKBENCH_ATTACH_MAX_MB", "20"),
+        workbench_sync_days_initial=_to_int("WORKBENCH_SYNC_DAYS_INITIAL", "7"),
+        workbench_sync_interval_seconds=_to_int("WORKBENCH_SYNC_INTERVAL_SECONDS", "300"),
+        workbench_read_only=_to_bool("WORKBENCH_READ_ONLY", "true"),
+        workbench_llm_model=_env("WORKBENCH_LLM_MODEL", "openai/gpt-4o-mini"),
+        workbench_embed_model=_env("WORKBENCH_EMBED_MODEL", "openai/text-embedding-3-small"),
+        workbench_llm_only_candidates=_to_bool("WORKBENCH_LLM_ONLY_CANDIDATES", "true"),
+        workbench_vector_top_k=_to_int("WORKBENCH_VECTOR_TOP_K", "5"),
+        github_embedding_api_url=_env(
+            "GITHUB_EMBEDDING_API_URL",
+            "https://models.github.ai/inference/embeddings",
+        ),
+        workbench_faiss_index_path=Path(_env("WORKBENCH_FAISS_INDEX_PATH", "data/faiss.index")),
     )

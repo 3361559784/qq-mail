@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>QQ Mail Workbench</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <h1>QQ Mail Workbench</h1>
+  <p>read_only: {{ read_only }}</p>
+  <div class="cards">
+    <div class="card"><strong>Action</strong><div>{{ counts.action }}</div></div>
+    <div class="card"><strong>Waiting</strong><div>{{ counts.waiting }}</div></div>
+    <div class="card"><strong>FYI</strong><div>{{ counts.fyi }}</div></div>
+    <div class="card"><strong>Spamish</strong><div>{{ counts.spamish }}</div></div>
+    <div class="card"><strong>Open Tasks</strong><div>{{ tasks_open }}</div></div>
+  </div>
+  <p>
+    <a href="/mails?category=action">Action Mails</a> |
+    <a href="/tasks?status=open">Open Tasks</a> |
+    <a href="/search">Search</a>
+  </p>
+</body>
+</html>
