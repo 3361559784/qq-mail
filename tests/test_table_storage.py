@@ -30,6 +30,12 @@ class FakeTableClient:
             raise ResourceNotFoundError("not found")
         return dict(self._data[key])
 
+    def delete_entity(self, partition_key, row_key):  # type: ignore[no-untyped-def]
+        key = (partition_key, row_key)
+        if key not in self._data:
+            raise ResourceNotFoundError("not found")
+        del self._data[key]
+
     def upsert_entity(self, entity, mode=None):  # type: ignore[no-untyped-def]
         del mode
         key = (entity["PartitionKey"], entity["RowKey"])
@@ -51,6 +57,17 @@ class TestTableStorage(unittest.TestCase):
         self.assertTrue(first)
         self.assertFalse(second)
         self.assertTrue(store.is_processed("dedupe-001"))
+
+    def test_clear_processed_allows_retry(self) -> None:
+        table = FakeTableClient()
+        store = TableProcessedStore(table_name="processedstate", table_client=table)
+
+        store.mark_processed("dedupe-002", "user@example.com")
+        self.assertTrue(store.is_processed("dedupe-002"))
+
+        store.clear_processed("dedupe-002")
+        self.assertFalse(store.is_processed("dedupe-002"))
+        self.assertTrue(store.mark_processed("dedupe-002", "user@example.com"))
 
     def test_frequent_sender_window_prune_and_limit(self) -> None:
         table = FakeTableClient()

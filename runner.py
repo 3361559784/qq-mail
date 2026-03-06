@@ -366,6 +366,14 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
                 reason="smtp-send-failed",
                 dedupe_key=item.dedupe_key,
             )
+            try:
+                state_store.clear_processed(item.dedupe_key)
+            except Exception:
+                logger.warning(
+                    "Failed to clear processed state after send error: %s",
+                    item.dedupe_key,
+                    exc_info=True,
+                )
             errors += 1
             continue
 
