@@ -293,7 +293,8 @@ class QQMailClient:
             imap.login(self.qq_email, self.qq_auth_code)
             imap.select("INBOX")
 
-            typ, data = imap.search(None, "SINCE", since_date)
+            search_criteria = ["UNANSWERED", "SINCE", since_date]
+            typ, data = imap.search(None, *search_criteria)
             if typ != "OK":
                 raise RuntimeError(f"IMAP search failed: {typ} {data}")
             msg_nums = data[0].split() if data and data[0] else []

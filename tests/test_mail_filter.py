@@ -152,6 +152,45 @@ class TestMailFilter(unittest.TestCase):
         self.assertFalse(decision.should_reply)
         self.assertEqual(decision.reason, "hard:marketing-body")
 
+    def test_human_notice_subject_is_not_hard_filtered(self) -> None:
+        decision = self.filter.evaluate(
+            headers={},
+            sender="colleague@example.com",
+            subject="会议通知：下午三点讨论",
+            body="下午三点会议室见，讨论方案细节。",
+            denylist_hit=False,
+            allowlist_hit=False,
+            frequent_hit=False,
+        )
+        self.assertTrue(decision.should_reply)
+        self.assertNotIn("hard:", decision.reason)
+
+    def test_system_newsletter_subject_needs_list_marker(self) -> None:
+        decision = self.filter.evaluate(
+            headers={"List-Unsubscribe": "<mailto:unsubscribe@example.com>"},
+            sender="updates@example.com",
+            subject="Weekly newsletter update",
+            body="Here is your weekly digest.",
+            denylist_hit=False,
+            allowlist_hit=False,
+            frequent_hit=False,
+        )
+        self.assertFalse(decision.should_reply)
+        self.assertEqual(decision.reason, "hard:list-unsubscribe")
+
+    def test_otp_subject_is_blocked(self) -> None:
+        decision = self.filter.evaluate(
+            headers={},
+            sender="security@example.com",
+            subject="Verification code: 123456",
+            body="Your OTP is 123456, valid for 5 minutes.",
+            denylist_hit=False,
+            allowlist_hit=False,
+            frequent_hit=False,
+        )
+        self.assertFalse(decision.should_reply)
+        self.assertEqual(decision.reason, "hard:otp-subject")
+
 
 if __name__ == "__main__":
     unittest.main()
