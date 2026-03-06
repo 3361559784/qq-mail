@@ -228,8 +228,6 @@ class MailFilter:
         system_subject_keywords = [
             "验证码",
             "动态码",
-            "验证",
-            "核验",
             "security code",
             "one-time password",
             "verification code",

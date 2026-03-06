@@ -11,12 +11,24 @@ import runner
 class _FakeStateStore:
     def __init__(self) -> None:
         self.marked: list[tuple[str, str]] = []
+        self.unmarked: list[str] = []
+        self._keys: set[str] = set()
 
     def is_processed(self, dedupe_key: str) -> bool:
-        return False
+        return dedupe_key in self._keys
 
     def mark_processed(self, dedupe_key: str, sender_email: str) -> bool:
+        if dedupe_key in self._keys:
+            return False
+        self._keys.add(dedupe_key)
         self.marked.append((dedupe_key, sender_email))
+        return True
+
+    def unmark_processed(self, dedupe_key: str) -> bool:
+        if dedupe_key not in self._keys:
+            return False
+        self._keys.remove(dedupe_key)
+        self.unmarked.append(dedupe_key)
         return True
 
 
@@ -135,7 +147,9 @@ class TestRunnerStateSemantics(unittest.TestCase):
             stats = runner.run_once(self._settings())
 
         self.assertEqual(stats.errors, 1)
-        self.assertEqual(state_store.marked, [])
+        self.assertEqual(state_store.marked, [("dedupe-1", "alice@example.com")])
+        self.assertEqual(state_store.unmarked, ["dedupe-1"])
+        self.assertFalse(state_store.is_processed("dedupe-1"))
 
     def test_send_success_marks_processed(self) -> None:
         state_store = _FakeStateStore()
@@ -152,6 +166,8 @@ class TestRunnerStateSemantics(unittest.TestCase):
 
         self.assertEqual(stats.replied, 1)
         self.assertEqual(state_store.marked, [("dedupe-1", "alice@example.com")])
+        self.assertEqual(state_store.unmarked, [])
+        self.assertTrue(state_store.is_processed("dedupe-1"))
 
 
 if __name__ == "__main__":
