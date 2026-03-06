@@ -183,6 +183,9 @@ class MailFilter:
             return False
         if self._contains_keywords(merged, self.SHORT_HUMAN_BLOCK_TOKENS):
             return False
+        meeting_tokens = ["会议", "讨论", "安排", "meeting", "schedule"]
+        if any(token in merged for token in meeting_tokens):
+            return True
         if self._contains_keywords(merged, self.SHORT_HUMAN_TOKENS):
             return True
         if ("?" in merged or "？" in merged) and len(body_strip) <= 16:
@@ -202,6 +205,9 @@ class MailFilter:
         precedence = headers.get("precedence", "").strip().lower()
         return_path = headers.get("return-path", "").strip().lower().replace(" ", "")
         to_header = headers.get("to", "").lower()
+        list_unsubscribe = self._has_header(headers, "List-Unsubscribe")
+        list_id = self._has_header(headers, "List-Id")
+        list_post = self._has_header(headers, "List-Post")
 
         if auto_submitted and auto_submitted != "no":
             return FilterDecision(False, "hard:auto-submitted", 1.0)
@@ -209,11 +215,11 @@ class MailFilter:
         if precedence in {"bulk", "list", "junk", "auto_reply"}:
             return FilterDecision(False, "hard:precedence", 1.0)
 
-        if self._has_header(headers, "List-Unsubscribe"):
+        if list_unsubscribe:
             return FilterDecision(False, "hard:list-unsubscribe", 1.0)
-        if self._has_header(headers, "List-Id"):
+        if list_id:
             return FilterDecision(False, "hard:list-id", 1.0)
-        if self._has_header(headers, "List-Post"):
+        if list_post:
             return FilterDecision(False, "hard:list-post", 1.0)
 
         if return_path == "<>":
@@ -225,35 +231,30 @@ class MailFilter:
         if any(flag in sender_lower for flag in ["no-reply", "noreply", "mailer-daemon", "postmaster"]):
             return FilterDecision(False, "hard:non-human-sender", 1.0)
 
-        system_subject_keywords = [
+        otp_subject_keywords = [
             "验证码",
-            "账单",
-            "通知",
-            "订阅",
-            "促销",
-            "newsletter",
-            "notification",
             "otp",
-            "verify",
-            "verification",
-            "receipt",
-            "invoice",
-            "system alert",
-            "limited time",
-            "discount",
-            "sale",
-            "coupon",
-            "offer",
-            "deal",
-            "black friday",
-            "cyber monday",
-            "优惠",
-            "折扣",
-            "活动",
-            "福利",
+            "one-time password",
+            "verification code",
+            "auth code",
+            "authentication code",
+            "security code",
         ]
-        if self._contains_keywords(subject_lower, system_subject_keywords):
-            return FilterDecision(False, "hard:system-subject", 0.95)
+        bulk_notice_keywords = [
+            "newsletter",
+            "subscription",
+            "系统通知",
+            "系统消息",
+            "自动回复",
+            "auto reply",
+            "system notification",
+        ]
+        if self._contains_keywords(subject_lower, otp_subject_keywords):
+            return FilterDecision(False, "hard:otp-subject", 0.95)
+        if self._contains_keywords(subject_lower, bulk_notice_keywords) and (
+            list_unsubscribe or list_id or list_post
+        ):
+            return FilterDecision(False, "hard:system-subject", 0.85)
 
         if self._marketing_content_hit(subject=subject, body=body):
             return FilterDecision(False, "hard:marketing-body", 0.95)

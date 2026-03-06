@@ -289,6 +289,7 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
             enable_postprocess=settings.enable_reply_postprocess,
             max_questions=settings.reply_max_questions,
         )
+        claimed_by_self = claimed
         try:
             mail = mail_client.build_reply_email(
                 original=item.original,
@@ -366,6 +367,15 @@ def run_once(settings: Settings, logger: logging.Logger = LOGGER) -> RunStats:
                 reason="smtp-send-failed",
                 dedupe_key=item.dedupe_key,
             )
+            try:
+                if claimed_by_self:
+                    state_store.unmark_processed(item.dedupe_key)
+            except Exception:
+                logger.warning(
+                    "Failed to release processed state after send failure: %s",
+                    item.dedupe_key,
+                    exc_info=True,
+                )
             errors += 1
             continue
 
